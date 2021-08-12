@@ -690,7 +690,7 @@ void AreaBuf<Pel>::linearTransform( const int scale, const int shift, const int 
 template<>
 void AreaBuf<Pel>::subtract( const Pel val )
 {
-  ClpRng clpRngDummy;
+  ClpRng clpRngDummy = { 0, 0, 0, 0 };
   linearTransform( 1, 0, -val, false, clpRngDummy );
 }
 #endif
