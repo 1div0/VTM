@@ -57,7 +57,7 @@
 
 //########### place macros to be be kept below this line ###############
 #define JVET_R0351_HIGH_BIT_DEPTH_SUPPORT                 1 // JVET-R0351: high bit depth coding support (syntax changes, no mathematical differences for CTCs)
-#define JVET_R0351_HIGH_BIT_DEPTH_ENABLED                 0 // JVET-R0351: high bit depth coding enabled (increases accuracies of some calculations, e.g. transforms)
+#define JVET_R0351_HIGH_BIT_DEPTH_ENABLED                 1 // JVET-R0351: high bit depth coding enabled (increases accuracies of some calculations, e.g. transforms)
 
 #define JVET_R0164_MEAN_SCALED_SATD                       1 // JVET-R0164: Use a mean scaled version of SATD in encoder decisions
 
@@ -93,7 +93,7 @@ typedef std::pair<int, int>  TrCost;
 #endif
 
 #ifndef ENABLE_SPLIT_PARALLELISM
-#define ENABLE_SPLIT_PARALLELISM                          0
+#define ENABLE_SPLIT_PARALLELISM                          1
 #endif
 #if ENABLE_SPLIT_PARALLELISM
 #define PARL_SPLIT_MAX_NUM_JOBS                           6                             // number of parallel jobs that can be defined and need memory allocated
@@ -109,7 +109,7 @@ typedef std::pair<int, int>  TrCost;
 // ====================================================================================================================
 
 #ifndef ENABLE_TRACING
-#define ENABLE_TRACING                                    0 // DISABLE by default (enable only when debugging, requires 15% run-time in decoding) -- see documentation in 'doc/DTrace for NextSoftware.pdf'
+#define ENABLE_TRACING                                    1 // DISABLE by default (enable only when debugging, requires 15% run-time in decoding) -- see documentation in 'doc/DTrace for NextSoftware.pdf'
 #endif
 
 #if ENABLE_TRACING
@@ -137,7 +137,7 @@ typedef std::pair<int, int>  TrCost;
 // TODO: rename this macro to DECODER_DEBUG_BIT_STATISTICS (may currently cause merge issues with other branches)
 // This can be enabled by the makefile
 #ifndef RExt__DECODER_DEBUG_BIT_STATISTICS
-#define RExt__DECODER_DEBUG_BIT_STATISTICS                0 ///< 0 (default) = decoder reports as normal, 1 = decoder produces bit usage statistics (will impact decoder run time by up to ~10%)
+#define RExt__DECODER_DEBUG_BIT_STATISTICS                1 ///< 0 (default) = decoder reports as normal, 1 = decoder produces bit usage statistics (will impact decoder run time by up to ~10%)
 #endif
 
 #ifndef RExt__DECODER_DEBUG_TOOL_MAX_FRAME_STATS
@@ -148,7 +148,7 @@ typedef std::pair<int, int>  TrCost;
 #define EPBINCOUNT_FIX                                   (1 && RExt__DECODER_DEBUG_BIT_STATISTICS )   ///< 0 use count to represent number of calls to decodeBins. 1 = count and bins for EP bins are the same.
 
 #ifndef RExt__DECODER_DEBUG_TOOL_STATISTICS
-#define RExt__DECODER_DEBUG_TOOL_STATISTICS               0 ///< 0 (default) = decoder reports as normal, 1 = decoder produces tool usage statistics
+#define RExt__DECODER_DEBUG_TOOL_STATISTICS               1 ///< 0 (default) = decoder reports as normal, 1 = decoder produces tool usage statistics
 #endif
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS || RExt__DECODER_DEBUG_TOOL_STATISTICS

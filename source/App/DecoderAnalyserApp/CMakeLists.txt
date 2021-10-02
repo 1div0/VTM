@@ -55,7 +55,7 @@ else()
   target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_WPP_PARALLELISM=0 )
 endif()
 
-if( CMAKE_COMPILER_IS_GNUCC AND BUILD_STATIC )
+if( BUILD_STATIC )
   set( ADDITIONAL_LIBS ${ADDITIONAL_LIBS} -static -static-libgcc -static-libstdc++ )
   target_compile_definitions( ${EXE_NAME} PUBLIC ENABLE_WPP_STATIC_LINK=1 )
 endif()
