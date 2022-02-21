@@ -1,3 +1,5 @@
+#if 0
+
 /* The copyright in this software is being made available under the BSD
  * License, included below. This software may be subject to other third party
  * and contributor rights, including patent rights, and no such rights are
@@ -144,7 +146,6 @@ LibVTMEncoderCfg::LibVTMEncoderCfg()
 #endif
 , m_bNoQpDeltaConstraintFlag(false)
 , m_bNoDepQuantConstraintFlag(false)
-, m_bNoSignDataHidingConstraintFlag(false)
 #if EXTENSION_360_VIDEO
 , m_ext360(*this)
 #endif
@@ -4839,3 +4840,5 @@ bool LibVTMEncoderCfg::applySettings(vtm_settings_t *settings)
 }
 
 //! \}
+
+#endif

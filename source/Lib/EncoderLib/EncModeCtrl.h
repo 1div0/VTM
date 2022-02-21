@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,9 +43,7 @@
 
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/CodingStructure.h"
-#if JVET_O0592_ENC_ME_IMP
 #include "InterSearch.h"
-#endif
 
 #include <typeinfo>
 #include <vector>
@@ -61,14 +59,9 @@ enum EncTestModeType
   ETM_MERGE_SKIP,
   ETM_INTER_ME,
   ETM_AFFINE,
-  ETM_MERGE_TRIANGLE,
+  ETM_MERGE_GEO,
   ETM_INTRA,
-#if !JVET_O0525_REMOVE_PCM
-  ETM_IPCM,
-#endif
-#if JVET_O0119_BASE_PALETTE_444
   ETM_PALETTE,
-#endif
   ETM_SPLIT_QT,
   ETM_SPLIT_BT_H,
   ETM_SPLIT_BT_V,
@@ -105,21 +98,18 @@ static void getAreaIdx(const Area& area, const PreCalcValues &pcv, unsigned &idx
 struct EncTestMode
 {
   EncTestMode()
-    : type( ETM_INVALID ), opts( ETO_INVALID  ), qp( -1  ), lossless( false ) {}
+    : type( ETM_INVALID ), opts( ETO_INVALID  ), qp( -1  ) {}
   EncTestMode( EncTestModeType _type )
-    : type( _type       ), opts( ETO_STANDARD ), qp( -1  ), lossless( false ) {}
-  EncTestMode( EncTestModeType _type, int _qp, bool _lossless )
-    : type( _type       ), opts( ETO_STANDARD ), qp( _qp ), lossless( _lossless ) {}
-  EncTestMode( EncTestModeType _type, EncTestModeOpts _opts, int _qp, bool _lossless )
-    : type( _type       ), opts( _opts        ), qp( _qp ), lossless( _lossless ) {}
+    : type( _type       ), opts( ETO_STANDARD ), qp( -1  ) {}
+  EncTestMode( EncTestModeType _type, int _qp )
+    : type( _type       ), opts( ETO_STANDARD ), qp( _qp ) {}
+  EncTestMode( EncTestModeType _type, EncTestModeOpts _opts, int _qp )
+    : type( _type       ), opts( _opts        ), qp( _qp ) {}
 
   EncTestModeType type;
   EncTestModeOpts opts;
   int             qp;
-  bool            lossless;
-#if JVET_O0502_ISP_CLEANUP
   double          maxCostAllowed;
-#endif
 };
 
 
@@ -148,7 +138,7 @@ inline bool isModeInter( const EncTestMode& encTestmode ) // perhaps remove
   return (   encTestmode.type == ETM_INTER_ME
           || encTestmode.type == ETM_MERGE_SKIP
           || encTestmode.type == ETM_AFFINE
-          || encTestmode.type == ETM_MERGE_TRIANGLE
+          || encTestmode.type == ETM_MERGE_GEO
           || encTestmode.type == ETM_HASH_INTER
          );
 }
@@ -204,12 +194,26 @@ struct ComprCUCtx
     , skipSecondMTSPass
                     ( false )
     , interHad      (std::numeric_limits<Distortion>::max())
-#if ENABLE_SPLIT_PARALLELISM
-    , isLevelSplitParallel
-                    ( false )
-#endif
     , bestCostWithoutSplitFlags( MAX_DOUBLE )
     , bestCostMtsFirstPassNoIsp( MAX_DOUBLE )
+    , bestCostIsp   ( MAX_DOUBLE )
+    , ispWasTested  ( false )
+    , bestPredModeDCT2
+                    ( UINT8_MAX )
+    , relatedCuIsValid
+                    ( false )
+    , ispPredModeVal( 0 )
+    , bestDCT2NonISPCost
+                    ( MAX_DOUBLE )
+    , bestNonDCT2Cost
+                    ( MAX_DOUBLE )
+    , bestISPIntraMode
+                    ( UINT8_MAX )
+    , mipFlag       ( false )
+    , ispMode       ( NOT_INTRA_SUBPARTITIONS )
+    , ispLfnstIdx   ( 0 )
+    , stopNonDCT2Transforms
+                    ( false )
   {
     getAreaIdx( cs.area.Y(), *cs.pcv, cuX, cuY, cuW, cuH );
     partIdx = ( ( cuX << 8 ) | cuY );
@@ -237,11 +241,20 @@ struct ComprCUCtx
   double                            bestMtsSize2Nx2N1stPass;
   bool                              skipSecondMTSPass;
   Distortion                        interHad;
-#if ENABLE_SPLIT_PARALLELISM
-  bool                              isLevelSplitParallel;
-#endif
   double                            bestCostWithoutSplitFlags;
   double                            bestCostMtsFirstPassNoIsp;
+  double                            bestCostIsp;
+  bool                              ispWasTested;
+  uint16_t                          bestPredModeDCT2;
+  bool                              relatedCuIsValid;
+  uint16_t                          ispPredModeVal;
+  double                            bestDCT2NonISPCost;
+  double                            bestNonDCT2Cost;
+  uint8_t                           bestISPIntraMode;
+  bool                              mipFlag;
+  uint8_t                           ispMode;
+  uint8_t                           ispLfnstIdx;
+  bool                              stopNonDCT2Transforms;
 
   template<typename T> T    get( int ft )       const { return typeid(T) == typeid(double) ? (T&)extraFeaturesd[ft] : T(extraFeatures[ft]); }
   template<typename T> void set( int ft, T val )      { extraFeatures [ft] = int64_t( val ); }
@@ -266,16 +279,9 @@ protected:
 #endif
   bool                  m_fastDeltaQP;
   static_vector<ComprCUCtx, ( MAX_CU_DEPTH << 2 )> m_ComprCUCtxList;
-#if ENABLE_SPLIT_PARALLELISM
-  int                   m_runNextInParallel;
-#endif
-#if JVET_O0592_ENC_ME_IMP
   InterSearch*          m_pcInterSearch;
-#endif
 
-#if JVET_O0119_BASE_PALETTE_444
   bool                  m_doPlt;
-#endif
 
 public:
 
@@ -295,13 +301,6 @@ public:
 
   virtual bool useModeResult        ( const EncTestMode& encTestmode, CodingStructure*& tempCS,  Partitioner& partitioner ) = 0;
   virtual bool checkSkipOtherLfnst  ( const EncTestMode& encTestmode, CodingStructure*& tempCS,  Partitioner& partitioner ) = 0;
-#if ENABLE_SPLIT_PARALLELISM
-  virtual void copyState            ( const EncModeCtrl& other, const UnitArea& area );
-  virtual int  getNumParallelJobs   ( const CodingStructure &cs, Partitioner& partitioner )                                 const { return 1;     }
-  virtual bool isParallelSplit      ( const CodingStructure &cs, Partitioner& partitioner )                                 const { return false; }
-  virtual bool parallelJobSelector  ( const EncTestMode& encTestmode, const CodingStructure &cs, Partitioner& partitioner ) const { return true;  }
-          void setParallelSplit     ( bool val ) { m_runNextInParallel = val; }
-#endif
 
   void         init                 ( EncCfg *pCfg, RateCtrl *pRateCtrl, RdCost *pRdCost );
   bool         tryModeMaster        ( const EncTestMode& encTestmode, const CodingStructure &cs, Partitioner& partitioner );
@@ -320,6 +319,11 @@ public:
   void                  initLumaDeltaQpLUT();
   int                   calculateLumaDQP  ( const CPelBuf& rcOrg );
 #endif
+#if JVET_W0043
+  int                                 calculateLumaDQPsmooth(const CPelBuf& rcOrg, int baseQP, double threshold, double scale, double offset, int limit);
+#else
+  int                                 calculateLumaDQPsmooth(const CPelBuf& rcOrg, int baseQP);
+#endif
   void setFastDeltaQp                 ( bool b )                {        m_fastDeltaQP = b;                               }
   bool getFastDeltaQp                 ()                  const { return m_fastDeltaQP;                                   }
 
@@ -333,12 +337,416 @@ public:
   void   setBestCostWithoutSplitFlags ( double cost )           { m_ComprCUCtxList.back().bestCostWithoutSplitFlags = cost;         }
   double getMtsFirstPassNoIspCost     ()                  const { return m_ComprCUCtxList.back().bestCostMtsFirstPassNoIsp;         }
   void   setMtsFirstPassNoIspCost     ( double cost )           { m_ComprCUCtxList.back().bestCostMtsFirstPassNoIsp = cost;         }
-#if JVET_O0592_ENC_ME_IMP
+  double getIspCost                   ()                  const { return m_ComprCUCtxList.back().bestCostIsp; }
+  void   setIspCost                   ( double val )            { m_ComprCUCtxList.back().bestCostIsp = val; }
+  bool   getISPWasTested              ()                  const { return m_ComprCUCtxList.back().ispWasTested; }
+  void   setISPWasTested              ( bool val )              { m_ComprCUCtxList.back().ispWasTested = val; }
+  void   setBestPredModeDCT2          ( uint16_t val )          { m_ComprCUCtxList.back().bestPredModeDCT2 = val; }
+  uint16_t getBestPredModeDCT2        ()                  const { return m_ComprCUCtxList.back().bestPredModeDCT2; }
+  bool   getRelatedCuIsValid          ()                  const { return m_ComprCUCtxList.back().relatedCuIsValid; }
+  void   setRelatedCuIsValid          ( bool val )              { m_ComprCUCtxList.back().relatedCuIsValid = val; }
+  uint16_t getIspPredModeValRelCU     ()                  const { return m_ComprCUCtxList.back().ispPredModeVal; }
+  void   setIspPredModeValRelCU       ( uint16_t val )          { m_ComprCUCtxList.back().ispPredModeVal = val; }
+  double getBestDCT2NonISPCostRelCU   ()                  const { return m_ComprCUCtxList.back().bestDCT2NonISPCost; }
+  void   setBestDCT2NonISPCostRelCU   ( double val )            { m_ComprCUCtxList.back().bestDCT2NonISPCost = val; }
+  double getBestNonDCT2Cost           ()                  const { return m_ComprCUCtxList.back().bestNonDCT2Cost; }
+  void   setBestNonDCT2Cost           ( double val )            { m_ComprCUCtxList.back().bestNonDCT2Cost = val; }
+  uint8_t getBestISPIntraModeRelCU    ()                  const { return m_ComprCUCtxList.back().bestISPIntraMode; }
+  void   setBestISPIntraModeRelCU     ( uint8_t val )           { m_ComprCUCtxList.back().bestISPIntraMode = val; }
+  void   setMIPFlagISPPass            ( bool val )              { m_ComprCUCtxList.back().mipFlag = val; }
+  void   setISPMode                   ( uint8_t val )           { m_ComprCUCtxList.back().ispMode = val; }
+  void   setISPLfnstIdx               ( uint8_t val )           { m_ComprCUCtxList.back().ispLfnstIdx = val; }
+  bool   getStopNonDCT2Transforms     ()                  const { return m_ComprCUCtxList.back().stopNonDCT2Transforms; }
+  void   setStopNonDCT2Transforms     ( bool val )              { m_ComprCUCtxList.back().stopNonDCT2Transforms = val; }
   void setInterSearch                 (InterSearch* pcInterSearch)   { m_pcInterSearch = pcInterSearch; }
-#endif
-#if JVET_O0119_BASE_PALETTE_444
   void   setPltEnc                    ( bool b )                { m_doPlt = b; }
   bool   getPltEnc()                                      const { return m_doPlt; }
+
+#if GDR_ENABLED
+void forceIntraMode()
+{ 
+  // remove all inter or split to force make intra      
+  int n = (int)m_ComprCUCtxList.back().testModes.size();   
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (isModeInter(etm.type)) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;          
+    }
+  }  
+}
+
+void forceIntraNoSplit()
+{
+  // remove all inter or split to force make intra        
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (isModeInter(etm.type) || isModeSplit(etm.type)) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }  
+}
+
+// Note: ForceInterMode
+void forceInterMode()
+{    
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_INTRA) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;        
+    }
+  }  
+}
+
+void removeHashInter()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_HASH_INTER) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeMergeSkip()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_MERGE_SKIP) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeInterME()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_INTER_ME) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeAffine()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_AFFINE) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeMergeGeo()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_MERGE_GEO) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeIntra()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    if (etm.type == ETM_INTRA) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void removeBadMode()
+{  
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_INTER_ME && ((etm.opts & ETO_IMV) >> ETO_IMV_SHIFT) > 2) 
+    {  
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+      break;
+    }
+  }  
+}
+
+bool anyPredModeLeft()
+{ 
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_HASH_INTER ||
+        etm.type == ETM_MERGE_SKIP || 
+        etm.type == ETM_INTER_ME   || 
+        etm.type == ETM_AFFINE     || 
+        etm.type == ETM_MERGE_GEO  || 
+        etm.type == ETM_INTRA      ||
+        etm.type == ETM_PALETTE    || 
+        etm.type == ETM_IBC        ||
+        etm.type == ETM_IBC_MERGE) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool anyIntraIBCMode()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_INTRA || etm.type == ETM_IBC) 
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void forceRemoveDontSplit()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_POST_DONT_SPLIT) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceVerSplitOnly()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];       
+ 
+    if (etm.type != ETM_SPLIT_QT && etm.type != ETM_SPLIT_BT_V && etm.type != ETM_SPLIT_TT_V) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }   
+}
+
+void forceRemoveTTV()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    
+    if (etm.type == ETM_SPLIT_TT_V) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceRemoveBTV()
+{  
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_SPLIT_BT_V) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceRemoveQT()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+ 
+    if (etm.type == ETM_SPLIT_QT) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }  
+}
+
+void forceRemoveHT()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_SPLIT_BT_H || etm.type == ETM_SPLIT_TT_H) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceRemoveQTHT()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+    
+    if (etm.type == ETM_SPLIT_QT || etm.type == ETM_SPLIT_BT_H || etm.type == ETM_SPLIT_TT_H) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceRemoveAllSplit()
+{
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type == ETM_SPLIT_QT || etm.type == ETM_SPLIT_BT_H || etm.type == ETM_SPLIT_BT_V || etm.type == ETM_SPLIT_TT_H || etm.type == ETM_SPLIT_TT_V) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;
+    }
+  }
+}
+
+void forceQTonlyMode()
+{
+  // remove all split except QT  
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];
+
+    if (etm.type != ETM_SPLIT_QT) 
+    {
+      m_ComprCUCtxList.back().testModes.erase(m_ComprCUCtxList.back().testModes.begin() + j);
+      j--;
+      n--;        
+    }
+  }    
+}
+
+const char* printType(EncTestModeType type)
+{
+  char *ret;
+
+  switch (type) {
+  case  0: ret = strdup("Hash"); break;
+  case  1: ret = strdup("Mkip"); break;
+  case  2: ret = strdup("Inter"); break;
+  case  3: ret = strdup("Affi"); break;
+  case  4: ret = strdup("Tria"); break;
+  case  5: ret = strdup("Intra"); break;
+  case  6: ret = strdup("Palet"); break;
+
+  case  7: ret = strdup("QT"); break;
+  case  8: ret = strdup("BTH"); break;
+  case  9: ret = strdup("BTV"); break;
+  case 10: ret = strdup("TTH"); break;
+  case 11: ret = strdup("TTV"); break;
+  case 12: ret = strdup("|"); break;
+  case 13: ret = strdup("CACHE"); break;
+  case 14: ret = strdup("IMV"); break;
+  case 15: ret = strdup("IBC"); break;
+  case 16: ret = strdup("IBCM"); break;
+  default:
+    ret = strdup("INVALID");
+  }
+
+  return ret;
+}
+
+void printMode()
+{
+  // remove all inter or split to force make intra          
+  int n = (int)m_ComprCUCtxList.back().testModes.size();
+  printf("-:[");
+  for (int j = 0; j < n; j++) 
+  {
+    const EncTestMode etm = m_ComprCUCtxList.back().testModes[j];      
+    printf(" %s", printType(etm.type));      
+  }
+  printf("]\n");   
+}
 #endif
 
 protected:
@@ -362,13 +770,7 @@ struct SaveLoadStructSbt
 class SaveLoadEncInfoSbt
 {
 protected:
-#if ENABLE_SPLIT_PARALLELISM
-public:
-#endif
   void init( const Slice &slice );
-#if ENABLE_SPLIT_PARALLELISM
-protected:
-#endif
   void create();
   void destroy();
 
@@ -381,9 +783,6 @@ public:
   void     resetSaveloadSbt( int maxSbtSize );
   uint16_t findBestSbt( const UnitArea& area, const uint32_t curPuSse );
   bool     saveBestSbt( const UnitArea& area, const uint32_t curPuSse, const uint8_t curPuSbt, const uint8_t curPuTrs );
-#if ENABLE_SPLIT_PARALLELISM
-  void     copyState(const SaveLoadEncInfoSbt& other);
-#endif
 };
 
 static const int MAX_STORED_CU_INFO_REFS = 4;
@@ -398,13 +797,14 @@ struct CodedCUInfo
   bool validMv[NUM_REF_PIC_LIST_01][MAX_STORED_CU_INFO_REFS];
   Mv   saveMv [NUM_REF_PIC_LIST_01][MAX_STORED_CU_INFO_REFS];
 
-  uint8_t GBiIdx;
-
-#if ENABLE_SPLIT_PARALLELISM
-
-  uint64_t
-       temporalId;
-#endif
+  uint8_t BcwIdx;
+  char    selectColorSpaceOption;  // 0 - test both two color spaces; 1 - only test the first color spaces; 2 - only test the second color spaces
+  uint16_t ispPredModeVal;
+  double   bestDCT2NonISPCost;
+  double   bestCost;
+  double   bestNonDCT2Cost;
+  bool     relatedCuIsValid;
+  uint8_t  bestISPIntraMode;
 };
 
 class CacheBlkInfoCtrl
@@ -420,21 +820,7 @@ protected:
 
   void create   ();
   void destroy  ();
-#if ENABLE_SPLIT_PARALLELISM
-public:
-#endif
   void init     ( const Slice &slice );
-#if ENABLE_SPLIT_PARALLELISM
-private:
-  uint64_t
-       m_currTemporalId;
-public:
-  void tick     () { m_currTemporalId++; CHECK( m_currTemporalId <= 0, "Problem with integer overflow!" ); }
-  // mark the state of the blk as changed within the current temporal id
-  void copyState( const CacheBlkInfoCtrl &other, const UnitArea& area );
-protected:
-  void touch    ( const UnitArea& area );
-#endif
 
   CodedCUInfo& getBlkInfo( const UnitArea& area );
 
@@ -448,8 +834,10 @@ public:
   void setMv  ( const UnitArea& area, const RefPicList refPicList, const int iRefIdx, const Mv& rMv );
 
   bool  getInter( const UnitArea& area );
-  void  setGbiIdx( const UnitArea& area, uint8_t gBiIdx );
-  uint8_t getGbiIdx( const UnitArea& area );
+  void  setBcwIdx( const UnitArea& area, uint8_t gBiIdx );
+  uint8_t getBcwIdx( const UnitArea& area );
+
+  char  getSelectColorSpaceOption(const UnitArea& area);
 };
 
 #if REUSE_CU_RESULTS
@@ -466,10 +854,6 @@ struct BestEncodingInfo
   EncTestMode    testMode;
 
   int            poc;
-
-#if ENABLE_SPLIT_PARALLELISM
-  int64_t        temporalId;
-#endif
 };
 
 class BestEncInfoCache
@@ -481,15 +865,9 @@ private:
   BestEncodingInfo ***m_bestEncInfo[MAX_CU_SIZE >> MIN_CU_LOG2][MAX_CU_SIZE >> MIN_CU_LOG2];
   TCoeff             *m_pCoeff;
   Pel                *m_pPcmBuf;
-#if JVET_O0119_BASE_PALETTE_444
   bool               *m_runType;
-  Pel                *m_runLength;
-#endif
   CodingStructure     m_dummyCS;
   XUCache             m_dummyCache;
-#if ENABLE_SPLIT_PARALLELISM
-  int64_t m_currTemporalId;
-#endif
 
 protected:
 
@@ -498,19 +876,10 @@ protected:
 
   bool setFromCs( const CodingStructure& cs, const Partitioner& partitioner );
   bool isValid  ( const CodingStructure &cs, const Partitioner &partitioner, int qp );
-
-#if ENABLE_SPLIT_PARALLELISM
-  void touch    ( const UnitArea& area );
-#endif
 public:
 
   BestEncInfoCache() : m_slice_bencinf( nullptr ), m_dummyCS( m_dummyCache.cuCache, m_dummyCache.puCache, m_dummyCache.tuCache ) {}
   virtual ~BestEncInfoCache() {}
-
-#if ENABLE_SPLIT_PARALLELISM
-  void     copyState( const BestEncInfoCache &other, const UnitArea &area );
-  void     tick     () { m_currTemporalId++; CHECK( m_currTemporalId <= 0, "Problem with integer overflow!" ); }
-#endif
   void     init     ( const Slice &slice );
   bool     setCsFrom( CodingStructure& cs, EncTestMode& testMode, const Partitioner& partitioner ) const;
 };
@@ -551,6 +920,9 @@ class EncModeCtrlMTnoRQT : public EncModeCtrl, public CacheBlkInfoCtrl
   };
 
   unsigned m_skipThreshold;
+#if GDR_ENABLED
+  EncCfg m_encCfg;
+#endif
 
 public:
 
@@ -563,13 +935,6 @@ public:
   virtual bool tryMode            ( const EncTestMode& encTestmode, const CodingStructure &cs, Partitioner& partitioner );
   virtual bool useModeResult      ( const EncTestMode& encTestmode, CodingStructure*& tempCS,  Partitioner& partitioner );
 
-#if ENABLE_SPLIT_PARALLELISM
-  virtual void copyState          ( const EncModeCtrl& other, const UnitArea& area );
-
-  virtual int  getNumParallelJobs ( const CodingStructure &cs, Partitioner& partitioner ) const;
-  virtual bool isParallelSplit    ( const CodingStructure &cs, Partitioner& partitioner ) const;
-  virtual bool parallelJobSelector( const EncTestMode& encTestmode, const CodingStructure &cs, Partitioner& partitioner ) const;
-#endif
   virtual bool checkSkipOtherLfnst( const EncTestMode& encTestmode, CodingStructure*& tempCS, Partitioner& partitioner );
 };
 

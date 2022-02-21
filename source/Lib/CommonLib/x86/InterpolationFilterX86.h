@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,7 +68,7 @@ static void fullPelCopySSE( const ClpRng& clpRng, const void*_src, int srcStride
 {
   Tsrc* src = (Tsrc*)_src;
 
-  int headroom = IF_INTERNAL_PREC - clpRng.bd;
+  int headroom = IF_INTERNAL_FRAC_BITS(clpRng.bd);
   int headroom_offset = 1 << ( headroom - 1 );
   int offset   = IF_INTERNAL_OFFS;
   __m128i voffset  = _mm_set1_epi16( offset );
@@ -131,7 +131,7 @@ static void fullPelCopyAVX2( const ClpRng& clpRng, const void*_src, int srcStrid
 #ifdef USE_AVX2
   Tsrc* src = (Tsrc*)_src;
 
-  int headroom = IF_INTERNAL_PREC - clpRng.bd;
+  int headroom = IF_INTERNAL_FRAC_BITS(clpRng.bd);
   int offset   = 1 << ( headroom - 1 );
   int internal_offset = IF_INTERNAL_OFFS;
 
@@ -621,7 +621,7 @@ template<X86_VEXT vext, int N, bool shiftBack>
 static void simdInterpolateVerM8( const int16_t *src, int srcStride, int16_t *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, int16_t const *coeff )
 {
 //   src -= ( N / 2 - 1 ) * srcStride;
-  const Pel *srcOrig = src;
+  const int16_t *srcOrig = src;
   int16_t *dstOrig = dst;
 
   __m128i vcoeff[N / 2], vsrc[N];
@@ -1008,6 +1008,110 @@ static inline __m128i simdInterpolateLuma10Bit2P4(int16_t const *src, int srcStr
   return sumLo;
 }
 
+#ifdef USE_AVX2
+static inline __m256i simdInterpolateLumaHighBit2P16(int16_t const *src1, int srcStride, __m256i *mmCoeff, const __m256i & mmOffset, __m128i &mmShift)
+{
+  __m256i mm_mul_lo = _mm256_setzero_si256();
+  __m256i mm_mul_hi = _mm256_setzero_si256();
+
+  for (int coefIdx = 0; coefIdx < 2; coefIdx++)
+  {
+    __m256i mmPix = _mm256_lddqu_si256((__m256i*)(src1 + coefIdx * srcStride));
+    __m256i mm_hi = _mm256_mulhi_epi16(mmPix, mmCoeff[coefIdx]);
+    __m256i mm_lo = _mm256_mullo_epi16(mmPix, mmCoeff[coefIdx]);
+    mm_mul_lo = _mm256_add_epi32(mm_mul_lo, _mm256_unpacklo_epi16(mm_lo, mm_hi));
+    mm_mul_hi = _mm256_add_epi32(mm_mul_hi, _mm256_unpackhi_epi16(mm_lo, mm_hi));
+  }
+  mm_mul_lo = _mm256_sra_epi32(_mm256_add_epi32(mm_mul_lo, mmOffset), mmShift);
+  mm_mul_hi = _mm256_sra_epi32(_mm256_add_epi32(mm_mul_hi, mmOffset), mmShift);
+  __m256i mm_sum = _mm256_packs_epi32(mm_mul_lo, mm_mul_hi);
+  return (mm_sum);
+}
+#endif
+
+static inline __m128i simdInterpolateLumaHighBit2P8(int16_t const *src1, int srcStride, __m128i *mmCoeff, const __m128i & mmOffset, __m128i &mmShift)
+{
+  __m128i mm_mul_lo = _mm_setzero_si128();
+  __m128i mm_mul_hi = _mm_setzero_si128();
+
+  for (int coefIdx = 0; coefIdx < 2; coefIdx++)
+  {
+    __m128i mmPix = _mm_loadu_si128((__m128i*)(src1 + coefIdx * srcStride));
+    __m128i mm_hi = _mm_mulhi_epi16(mmPix, mmCoeff[coefIdx]);
+    __m128i mm_lo = _mm_mullo_epi16(mmPix, mmCoeff[coefIdx]);
+    mm_mul_lo = _mm_add_epi32(mm_mul_lo, _mm_unpacklo_epi16(mm_lo, mm_hi));
+    mm_mul_hi = _mm_add_epi32(mm_mul_hi, _mm_unpackhi_epi16(mm_lo, mm_hi));
+  }
+  mm_mul_lo = _mm_sra_epi32(_mm_add_epi32(mm_mul_lo, mmOffset), mmShift);
+  mm_mul_hi = _mm_sra_epi32(_mm_add_epi32(mm_mul_hi, mmOffset), mmShift);
+  __m128i mm_sum = _mm_packs_epi32(mm_mul_lo, mm_mul_hi);
+  return(mm_sum);
+}
+
+static inline __m128i simdInterpolateLumaHighBit2P4(int16_t const *src1, int srcStride, __m128i *mmCoeff, const __m128i & mmOffset, __m128i &mmShift)
+{
+  __m128i mm_sum = _mm_setzero_si128();
+  __m128i mm_zero = _mm_setzero_si128();
+  for (int coefIdx = 0; coefIdx < 2; coefIdx++)
+  {
+    __m128i mmPix = _mm_loadl_epi64((__m128i*)(src1 + coefIdx * srcStride));
+    __m128i mm_hi = _mm_mulhi_epi16(mmPix, mmCoeff[coefIdx]);
+    __m128i mm_lo = _mm_mullo_epi16(mmPix, mmCoeff[coefIdx]);
+    __m128i mm_mul = _mm_unpacklo_epi16(mm_lo, mm_hi);
+    mm_sum = _mm_add_epi32(mm_sum, mm_mul);
+  }
+  mm_sum = _mm_sra_epi32(_mm_add_epi32(mm_sum, mmOffset), mmShift);
+  mm_sum = _mm_packs_epi32(mm_sum, mm_zero);
+  return(mm_sum);
+}
+
+template<X86_VEXT vext, bool isLast>
+static void simdInterpolateN2_HIGHBIT_M4(const int16_t* src, int srcStride, int16_t *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, int16_t const *c)
+{
+#if USE_AVX2
+  __m256i mm256Offset = _mm256_set1_epi32(offset);
+  __m256i mm256Coeff[2];
+  for (int n = 0; n < 2; n++)
+  {
+    mm256Coeff[n] = _mm256_set1_epi16(c[n]);
+  }
+#endif
+  __m128i mmOffset = _mm_set1_epi32(offset);
+  __m128i mmCoeff[2];
+  for (int n = 0; n < 2; n++)
+    mmCoeff[n] = _mm_set1_epi16(c[n]);
+
+  __m128i mmShift = _mm_cvtsi64_si128(shift);
+
+  CHECK(isLast, "Not Supported");
+  CHECK(width % 4 != 0, "Not Supported");
+
+  for (int row = 0; row < height; row++)
+  {
+    int col = 0;
+#if USE_AVX2
+    for (; col < ((width >> 4) << 4); col += 16)
+    {
+      __m256i mmFiltered = simdInterpolateLumaHighBit2P16(src + col, cStride, mm256Coeff, mm256Offset, mmShift);
+      _mm256_storeu_si256((__m256i *)(dst + col), mmFiltered);
+    }
+#endif
+    for (; col < ((width >> 3) << 3); col += 8)
+    {
+      __m128i mmFiltered = simdInterpolateLumaHighBit2P8(src + col, cStride, mmCoeff, mmOffset, mmShift);
+      _mm_storeu_si128((__m128i *)(dst + col), mmFiltered);
+    }
+
+    for (; col < ((width >> 2) << 2); col += 4)
+    {
+      __m128i mmFiltered = simdInterpolateLumaHighBit2P4(src + col, cStride, mmCoeff, mmOffset, mmShift);
+      _mm_storel_epi64((__m128i *)(dst + col), mmFiltered);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
 template<X86_VEXT vext, bool isLast>
 static void simdInterpolateN2_10BIT_M4(const int16_t* src, int srcStride, int16_t *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, int16_t const *c)
 {
@@ -1051,7 +1155,984 @@ static void simdInterpolateN2_10BIT_M4(const int16_t* src, int srcStride, int16_
     dst += dstStride;
   }
 }
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateHorM8_HBD(const Pel* src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+  const int filterSpan = (N - 1);
+  _mm_prefetch((const char*)src + srcStride, _MM_HINT_T0);
+  _mm_prefetch((const char*)src + (width >> 1) + srcStride, _MM_HINT_T0);
+  _mm_prefetch((const char*)src + width + filterSpan + srcStride, _MM_HINT_T0);
 
+  __m128i voffset = _mm_set1_epi32(offset);
+  __m128i vibdimin = _mm_set1_epi32(clpRng.min);
+  __m128i vibdimax = _mm_set1_epi32(clpRng.max);
+  __m128i vcoeffh0, vcoeffh1;
+  __m128i vsrc0, vsrc1;
+  __m128i vsuma, vsumb;
+
+  vcoeffh0 = _mm_lddqu_si128((__m128i const *)coeff);
+  if (N == 8)
+  {
+    vcoeffh1 = _mm_lddqu_si128((__m128i const *)(coeff + 4));
+  }
+
+  for (int row = 0; row < height; row++)
+  {
+    _mm_prefetch((const char*)src + 2 * srcStride, _MM_HINT_T0);
+    _mm_prefetch((const char*)src + (width >> 1) + 2 * srcStride, _MM_HINT_T0);
+    _mm_prefetch((const char*)src + width + filterSpan + 2 * srcStride, _MM_HINT_T0);
+
+    for (int col = 0; col < width; col += 8)
+    {
+      __m128i vtmp[4];
+      for (int i = 0; i < 8; i += 2)
+      {
+        if (N == 8)
+        {
+          __m128i vsrc00 = _mm_lddqu_si128((__m128i const *)&src[col + i]);
+          __m128i vsrc01 = _mm_lddqu_si128((__m128i const *)&src[col + i + 4]);
+          vsrc0 = _mm_add_epi32(_mm_mullo_epi32(vsrc00, vcoeffh0), _mm_mullo_epi32(vsrc01, vcoeffh1));
+
+          __m128i vsrc10 = _mm_lddqu_si128((__m128i const *)&src[col + i + 1]);
+          __m128i vsrc11 = _mm_lddqu_si128((__m128i const *)&src[col + i + 5]);
+          vsrc1 = _mm_add_epi32(_mm_mullo_epi32(vsrc10, vcoeffh0), _mm_mullo_epi32(vsrc11, vcoeffh1));
+        }
+        else
+        {
+          vsrc0 = _mm_mullo_epi32(_mm_lddqu_si128((__m128i const *)&src[col + i]), vcoeffh0);
+          vsrc1 = _mm_mullo_epi32(_mm_lddqu_si128((__m128i const *)&src[col + i + 1]), vcoeffh0);
+        }
+
+        vtmp[i / 2] = _mm_hadd_epi32(vsrc0, vsrc1);
+      }
+
+      vsuma = _mm_hadd_epi32(vtmp[0], vtmp[1]);
+      vsumb = _mm_hadd_epi32(vtmp[2], vtmp[3]);
+
+      vsuma = _mm_add_epi32(vsuma, voffset);
+      vsumb = _mm_add_epi32(vsumb, voffset);
+
+      vsuma = _mm_srai_epi32(vsuma, shift);
+      vsumb = _mm_srai_epi32(vsumb, shift);
+
+      if (shiftBack)
+      {
+        vsuma = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsuma));
+        vsumb = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsumb));
+      }
+      _mm_storeu_si128((__m128i *)&dst[col], vsuma);
+      _mm_storeu_si128((__m128i *)&dst[col + 4], vsumb);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateHorM8_HBD_AVX2(const Pel* src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+#ifdef USE_AVX2
+  const int filterSpan = (N - 1);
+  _mm_prefetch((const char*)(src + srcStride), _MM_HINT_T0);
+  _mm_prefetch((const char*)(src + (width >> 1) + srcStride), _MM_HINT_T0);
+  _mm_prefetch((const char*)(src + width + filterSpan + srcStride), _MM_HINT_T0);
+
+  __m256i voffset = _mm256_set1_epi32(offset);
+  __m256i vibdimin = _mm256_set1_epi32(clpRng.min);
+  __m256i vibdimax = _mm256_set1_epi32(clpRng.max);
+
+  __m256i vcoeff[N];
+  for (int i = 0; i < N; i++)
+  {
+    vcoeff[i] = _mm256_set1_epi32(coeff[i]);
+  }
+
+  for (int row = 0; row < height; row++)
+  {
+    _mm_prefetch((const char*)(src + 2 * srcStride), _MM_HINT_T0);
+    _mm_prefetch((const char*)(src + (width >> 1) + 2 * srcStride), _MM_HINT_T0);
+    _mm_prefetch((const char*)(src + width + filterSpan + 2 * srcStride), _MM_HINT_T0);
+
+    for (int col = 0; col < width; col += 8)
+    {
+      __m256i vsum = _mm256_setzero_si256();
+      for (int i = 0; i < N; i++)
+      {
+        __m256i vsrc = _mm256_lddqu_si256((__m256i *)&src[col + i]);
+        vsum = _mm256_add_epi32(vsum, _mm256_mullo_epi32(vsrc, vcoeff[i]));
+      }
+      vsum = _mm256_add_epi32(vsum, voffset);
+      vsum = _mm256_srai_epi32(vsum, shift);
+      if (shiftBack)
+      {
+        vsum = _mm256_min_epi32(vibdimax, _mm256_max_epi32(vibdimin, vsum));
+      }
+      _mm256_storeu_si256((__m256i *)&dst[col], vsum);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+#endif
+}
+
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateVerM8_HBD(const Pel *src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+  const Pel *srcOrig = src;
+  Pel *dstOrig = dst;
+
+  __m128i vcoeff[N], vsrc0[N], vsrc1[N];
+  __m128i vzero = _mm_setzero_si128();
+  __m128i voffset = _mm_set1_epi32(offset);
+  __m128i vibdimin = _mm_set1_epi32(clpRng.min);
+  __m128i vibdimax = _mm_set1_epi32(clpRng.max);
+
+  __m128i vsuma, vsumb;
+  for (int i = 0; i < N; i++)
+  {
+    vcoeff[i] = _mm_set1_epi32(coeff[i]);
+  }
+
+  for (int col = 0; col < width; col += 8)
+  {
+    for (int i = 0; i < N - 1; i++)
+    {
+      vsrc0[i] = _mm_lddqu_si128((__m128i const *)&src[col + i * srcStride]);
+      vsrc1[i] = _mm_lddqu_si128((__m128i const *)&src[col + 4 + i * srcStride]);
+    }
+
+    for (int row = 0; row < height; row++)
+    {
+      vsrc0[N - 1] = _mm_lddqu_si128((__m128i const *)&src[col + (N - 1) * srcStride]);
+      vsrc1[N - 1] = _mm_lddqu_si128((__m128i const *)&src[col + 4 + (N - 1) * srcStride]);
+
+      vsuma = vsumb = vzero;
+      for (int i = 0; i < N; i++)
+      {
+        vsuma = _mm_add_epi32(vsuma, _mm_mullo_epi32(vsrc0[i], vcoeff[i]));
+        vsumb = _mm_add_epi32(vsumb, _mm_mullo_epi32(vsrc1[i], vcoeff[i]));
+      }
+
+      for (int i = 0; i < N - 1; i++)
+      {
+        vsrc0[i] = vsrc0[i + 1];
+        vsrc1[i] = vsrc1[i + 1];
+      }
+
+      vsuma = _mm_add_epi32(vsuma, voffset);
+      vsumb = _mm_add_epi32(vsumb, voffset);
+
+      vsuma = _mm_srai_epi32(vsuma, shift);
+      vsumb = _mm_srai_epi32(vsumb, shift);
+
+      if (shiftBack) //clip
+      {
+        vsuma = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsuma));
+        vsumb = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsumb));
+      }
+
+      _mm_storeu_si128((__m128i *)&dst[col], vsuma);
+      _mm_storeu_si128((__m128i *)&dst[col + 4], vsumb);
+
+      src += srcStride;
+      dst += dstStride;
+    }
+    src = srcOrig;
+    dst = dstOrig;
+  }
+}
+
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateVerM8_HBD_AVX2(const Pel *src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+#ifdef USE_AVX2
+  __m256i voffset = _mm256_set1_epi32(offset);
+  __m256i vibdimin = _mm256_set1_epi32(clpRng.min);
+  __m256i vibdimax = _mm256_set1_epi32(clpRng.max);
+
+  __m256i vsrc[N], vcoeff[N];
+  for (int i = 0; i < N; i++)
+  {
+    vcoeff[i] = _mm256_set1_epi32(coeff[i]);
+  }
+
+  const Pel *srcOrig = src;
+  Pel *dstOrig = dst;
+
+  for (int col = 0; col < width; col += 8)
+  {
+    for (int i = 0; i < N - 1; i++)
+    {
+      vsrc[i] = _mm256_loadu_si256((const __m256i *)&src[col + i * srcStride]);
+    }
+
+    for (int row = 0; row < height; row++)
+    {
+      vsrc[N - 1] = _mm256_loadu_si256((const __m256i *)&src[col + (N - 1) * srcStride]);
+
+      __m256i vsum = _mm256_setzero_si256();
+      for (int i = 0; i < N; i++)
+      {
+        vsum = _mm256_add_epi32(vsum, _mm256_mullo_epi32(vsrc[i], vcoeff[i]));
+      }
+
+      for (int i = 0; i < N - 1; i++)
+      {
+        vsrc[i] = vsrc[i + 1];
+      }
+
+      vsum = _mm256_add_epi32(vsum, voffset);
+      vsum = _mm256_srai_epi32(vsum, shift);
+
+      if (shiftBack)
+      {
+        vsum = _mm256_min_epi32(vibdimax, _mm256_max_epi32(vibdimin, vsum));
+      }
+      _mm256_storeu_si256((__m256i *)&dst[col], vsum);
+
+      src += srcStride;
+      dst += dstStride;
+    }
+    src = srcOrig;
+    dst = dstOrig;
+  }
+#endif
+}
+
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateHorM4_HBD(const Pel* src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+  __m128i voffset = _mm_set1_epi32(offset);
+  __m128i vibdimin = _mm_set1_epi32(clpRng.min);
+  __m128i vibdimax = _mm_set1_epi32(clpRng.max);
+  __m128i vcoeffh0, vcoeffh1, vsum;
+  vcoeffh0 = _mm_lddqu_si128((__m128i const *)coeff);
+  if (N == 8)
+  {
+    vcoeffh1 = _mm_lddqu_si128((__m128i const *)(coeff + 4));
+  }
+
+  for (int row = 0; row < height; row++)
+  {
+    for (int col = 0; col < width; col += 4)
+    {
+      if (N == 8)
+      {
+        __m128i vtmp[2];
+        for (int i = 0; i < 4; i += 2)
+        {
+          __m128i vsrc00 = _mm_lddqu_si128((__m128i const *)&src[col + i]);
+          __m128i vsrc01 = _mm_lddqu_si128((__m128i const *)&src[col + i + 4]);
+          __m128i vsrc10 = _mm_lddqu_si128((__m128i const *)&src[col + i + 1]);
+          __m128i vsrc11 = _mm_lddqu_si128((__m128i const *)&src[col + i + 5]);
+
+          __m128i vsrc0 = _mm_add_epi32(_mm_mullo_epi32(vsrc00, vcoeffh0), _mm_mullo_epi32(vsrc01, vcoeffh1));
+          __m128i vsrc1 = _mm_add_epi32(_mm_mullo_epi32(vsrc10, vcoeffh0), _mm_mullo_epi32(vsrc11, vcoeffh1));
+          vtmp[i / 2] = _mm_hadd_epi32(vsrc0, vsrc1);
+        }
+        vsum = _mm_hadd_epi32(vtmp[0], vtmp[1]);
+      }
+      else
+      {
+        __m128i vsrc0 = _mm_lddqu_si128((__m128i const *)&src[col]);
+        __m128i vsrc1 = _mm_lddqu_si128((__m128i const *)&src[col + 1]);
+        __m128i vsrc2 = _mm_lddqu_si128((__m128i const *)&src[col + 2]);
+        __m128i vsrc3 = _mm_lddqu_si128((__m128i const *)&src[col + 3]);
+
+        vsrc0 = _mm_mullo_epi32(vsrc0, vcoeffh0);
+        vsrc1 = _mm_mullo_epi32(vsrc1, vcoeffh0);
+        vsrc2 = _mm_mullo_epi32(vsrc2, vcoeffh0);
+        vsrc3 = _mm_mullo_epi32(vsrc3, vcoeffh0);
+
+        __m128i vsrca = _mm_hadd_epi32(vsrc0, vsrc1);
+        __m128i vsrcb = _mm_hadd_epi32(vsrc2, vsrc3);
+        vsum = _mm_hadd_epi32(vsrca, vsrcb);
+      }
+
+      vsum = _mm_add_epi32(vsum, voffset);
+      vsum = _mm_srai_epi32(vsum, shift);
+      if (shiftBack)
+      {
+        vsum = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsum));
+      }
+      _mm_storeu_si128((__m128i *)&dst[col], vsum);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
+template<X86_VEXT vext, int N, bool shiftBack>
+static void simdInterpolateVerM4_HBD(const Pel *src, int srcStride, Pel *dst, int dstStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *coeff)
+{
+  const Pel *srcOrig = src;
+  Pel *dstOrig = dst;
+
+  __m128i vsum, vcoeff[N], vsrc[N];
+  __m128i vzero = _mm_setzero_si128();
+  __m128i voffset = _mm_set1_epi32(offset);
+  __m128i vibdimin = _mm_set1_epi32(clpRng.min);
+  __m128i vibdimax = _mm_set1_epi32(clpRng.max);
+  for (int i = 0; i < N; i++)
+  {
+    vcoeff[i] = _mm_set1_epi32(coeff[i]);
+  }
+
+  for (int col = 0; col < width; col += 4)
+  {
+    for (int i = 0; i < N - 1; i++)
+    {
+      vsrc[i] = _mm_lddqu_si128((__m128i const *)&src[col + i * srcStride]);
+    }
+
+    for (int row = 0; row < height; row++)
+    {
+      vsrc[N - 1] = _mm_lddqu_si128((__m128i const *)&src[col + (N - 1) * srcStride]);
+
+      vsum = vzero;
+      for (int i = 0; i < N; i++)
+      {
+        vsum = _mm_add_epi32(vsum, _mm_mullo_epi32(vsrc[i], vcoeff[i]));
+      }
+
+      vsum = _mm_add_epi32(vsum, voffset);
+      vsum = _mm_srai_epi32(vsum, shift);
+
+      if (shiftBack)
+      {
+        vsum = _mm_min_epi32(vibdimax, _mm_max_epi32(vibdimin, vsum));
+      }
+
+      _mm_storeu_si128((__m128i *)&dst[col], vsum);
+
+      for (int i = 0; i < N - 1; i++)
+      {
+        vsrc[i] = vsrc[i + 1];
+      }
+
+      src += srcStride;
+      dst += dstStride;
+    }
+    src = srcOrig;
+    dst = dstOrig;
+  }
+}
+
+template<X86_VEXT vext, bool isLast>
+static void simdInterpolateN2_M8_HBD(const Pel* src, int srcStride, Pel *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *c)
+{
+  int row, col;
+  __m128i mmOffset = _mm_set1_epi32(offset);
+  __m128i mmMin = _mm_set1_epi32(clpRng.min);
+  __m128i mmMax = _mm_set1_epi32(clpRng.max);
+  __m128i mmCoeff[2];
+  for (int n = 0; n < 2; n++)
+  {
+    mmCoeff[n] = _mm_set1_epi32(c[n]);
+  }
+
+  for (row = 0; row < height; row++)
+  {
+    for (col = 0; col < width; col += 8)
+    {
+      const Pel* src_tmp = src;
+      __m128i vsuma = _mm_setzero_si128();
+      __m128i vsumb = _mm_setzero_si128();
+
+      for (int i = 0; i < 2; i++)
+      {
+        __m128i vsrc0 = _mm_lddqu_si128((__m128i *)&src_tmp[col]);
+        __m128i vsrc1 = _mm_lddqu_si128((__m128i *)&src_tmp[col + 4]);
+        vsuma = _mm_add_epi32(vsuma, _mm_mullo_epi32(vsrc0, mmCoeff[i]));
+        vsumb = _mm_add_epi32(vsumb, _mm_mullo_epi32(vsrc1, mmCoeff[i]));
+        src_tmp += cStride;
+      }
+
+      vsuma = _mm_srai_epi32(_mm_add_epi32(vsuma, mmOffset), shift);
+      vsumb = _mm_srai_epi32(_mm_add_epi32(vsumb, mmOffset), shift);
+      if (isLast)
+      {
+        vsuma = _mm_min_epi32(mmMax, _mm_max_epi32(mmMin, vsuma));
+        vsumb = _mm_min_epi32(mmMax, _mm_max_epi32(mmMin, vsumb));
+      }
+
+      _mm_storeu_si128((__m128i *)&dst[col], vsuma);
+      _mm_storeu_si128((__m128i *)&dst[col + 4], vsumb);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
+template<X86_VEXT vext, bool isLast>
+static void simdInterpolateN2_M4_HBD(const Pel* src, int srcStride, Pel *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *c)
+{
+  int row, col;
+  __m128i mmOffset = _mm_set1_epi32(offset);
+  __m128i mmMin = _mm_set1_epi32(clpRng.min);
+  __m128i mmMax = _mm_set1_epi32(clpRng.max);
+  __m128i mmCoeff[2];
+  for (int n = 0; n < 2; n++)
+  {
+    mmCoeff[n] = _mm_set1_epi32(c[n]);
+  }
+
+  for (row = 0; row < height; row++)
+  {
+    for (col = 0; col < width; col += 4)
+    {
+      const Pel* src_tmp = src;
+      __m128i vsum = _mm_setzero_si128();
+
+      for (int i = 0; i < 2; i++)
+      {
+        __m128i vsrc = _mm_lddqu_si128((__m128i *)&src_tmp[col]);
+        vsum = _mm_add_epi32(vsum, _mm_mullo_epi32(vsrc, mmCoeff[i]));
+        src_tmp += cStride;
+      }
+
+      vsum = _mm_srai_epi32(_mm_add_epi32(vsum, mmOffset), shift);
+      if (isLast)
+      {
+        vsum = _mm_min_epi32(mmMax, _mm_max_epi32(mmMin, vsum));
+      }
+
+      _mm_storeu_si128((__m128i *)&dst[col], vsum);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
+template<X86_VEXT vext, bool isLast>
+static void simdInterpolateN2_HBD_M4(const Pel* src, int srcStride, Pel *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *c)
+{
+  CHECK(isLast, "Not Supported");
+  CHECK(width % 4 != 0, "Not Supported");
+
+  __m128i mmOffset = _mm_set1_epi32(offset);
+  __m128i mmCoeff[2];
+  for (int n = 0; n < 2; n++)
+  {
+    mmCoeff[n] = _mm_set1_epi32(c[n]);
+  }
+
+  for (int row = 0; row < height; row++)
+  {
+    for (int col = 0; col < width; col += 4)
+    {
+      const Pel* src_tmp = src;
+      __m128i vsum = _mm_setzero_si128();
+      for (int i = 0; i < 2; i++)
+      {
+        __m128i vsrc = _mm_lddqu_si128((__m128i *)&src_tmp[col]);
+        vsum = _mm_add_epi32(vsum, _mm_mullo_epi32(vsrc, mmCoeff[i]));
+        src_tmp += cStride;
+      }
+      vsum = _mm_srai_epi32(_mm_add_epi32(vsum, mmOffset), shift);
+      _mm_storeu_si128((__m128i *)&dst[col], vsum);
+    }
+    src += srcStride;
+    dst += dstStride;
+  }
+}
+
+template<X86_VEXT vext, bool isLast>
+static void simdInterpolateN2_HBD_M4_AVX2(const Pel* src, int srcStride, Pel *dst, int dstStride, int cStride, int width, int height, int shift, int offset, const ClpRng& clpRng, Pel const *c)
+{
+#ifdef USE_AVX2
+  CHECK(isLast, "Not Supported");
+  CHECK(width % 4 != 0, "Not Supported");
+
+  __m256i mmOffset = _mm256_set1_epi32(offset);
+  __m256i mmCoeff[2];
+  for (int n = 0; n < 2; n++)
+  {
+    mmCoeff[n] = _mm256_set1_epi32(c[n]);
+  }
+
+  int srcStride2 = (srcStride << 1);
+  int dstStride2 = (dstStride << 1);
+
+  for (int row = 0; row < height; row += 2)
+  {
+    for (int col = 0; col < width; col += 4)
+    {
+      const Pel* src_tmp = src;
+      __m256i vsum = _mm256_setzero_si256();
+      for (int i = 0; i < 2; i++)
+      {
+        __m256i vsrc = _mm256_castsi128_si256(_mm_lddqu_si128((__m128i *)&src_tmp[col]));
+        vsrc = _mm256_inserti128_si256(vsrc, _mm_lddqu_si128((__m128i *)&src_tmp[col + srcStride]), 1);
+        vsum = _mm256_add_epi32(vsum, _mm256_mullo_epi32(vsrc, mmCoeff[i]));
+        src_tmp += cStride;
+      }
+      vsum = _mm256_srai_epi32(_mm256_add_epi32(vsum, mmOffset), shift);
+
+      _mm_storeu_si128((__m128i *)&dst[col], _mm256_castsi256_si128(vsum));
+      _mm_storeu_si128((__m128i *)&dst[col + dstStride], _mm256_castsi256_si128(_mm256_permute4x64_epi64(vsum, 0xee)));
+    }
+    src += srcStride2;
+    dst += dstStride2;
+  }
+#endif
+}
+
+template<X86_VEXT vext, bool isFirst, bool isLast>
+static void simdFilterCopy_HBD(const ClpRng& clpRng, const Pel* src, int srcStride, Pel* dst, int dstStride, int width, int height, bool biMCForDMVR)
+{
+  int row;
+
+  if (isFirst == isLast)
+  {
+    for (row = 0; row < height; row++)
+    {
+      memcpy(&dst[0], &src[0], width * sizeof(Pel));
+      src += srcStride;
+      dst += dstStride;
+    }
+  }
+  else if (isFirst)
+  {
+    if (width & 1)
+    {
+      InterpolationFilter::filterCopy<isFirst, isLast>(clpRng, src, srcStride, dst, dstStride, width, height,
+                                                       biMCForDMVR);
+      return;
+    }
+
+    if (biMCForDMVR)
+    {
+      int shift10BitOut = (clpRng.bd - IF_INTERNAL_PREC_BILINEAR);
+      if (shift10BitOut <= 0)
+      {
+        const __m128i shift = _mm_cvtsi32_si128(-shift10BitOut);
+        for (row = 0; row < height; row++)
+        {
+          int col = 0;
+#ifdef USE_AVX2
+          if (vext >= AVX2)
+          {
+            for (; col < ((width >> 3) << 3); col += 8)
+            {
+              __m256i val = _mm256_lddqu_si256((__m256i *) &src[col]);
+              val         = _mm256_sll_epi32(val, shift);
+              _mm256_storeu_si256((__m256i *) &dst[col], val);
+            }
+          }
+#endif
+
+          for (; col < ((width >> 2) << 2); col += 4)
+          {
+            __m128i val = _mm_lddqu_si128((__m128i *) &src[col]);
+            val         = _mm_sll_epi32(val, shift);
+            _mm_storeu_si128((__m128i *) &dst[col], val);
+          }
+
+          for (; col < width; col += 2)
+          {
+            __m128i val = _mm_loadl_epi64((__m128i *) &src[col]);
+            val         = _mm_sll_epi32(val, shift);
+            _mm_storel_epi64((__m128i *) &dst[col], val);
+          }
+          src += srcStride;
+          dst += dstStride;
+        }
+      }
+      else
+      {
+        int offset = (1 << (shift10BitOut - 1));
+        for (row = 0; row < height; row++)
+        {
+          int col = 0;
+#ifdef USE_AVX2
+          if (vext >= AVX2)
+          {
+            __m256i mm256_offset = _mm256_set1_epi32(offset);
+            for (; col < ((width >> 3) << 3); col += 8)
+            {
+              __m256i vsrc = _mm256_lddqu_si256((__m256i *) &src[col]);
+              vsrc         = _mm256_srai_epi32(_mm256_add_epi32(vsrc, mm256_offset), shift10BitOut);
+              _mm256_storeu_si256((__m256i *) &dst[col], vsrc);
+            }
+          }
+#endif
+
+          __m128i mm128_offset = _mm_set1_epi32(offset);
+          for (; col < ((width >> 2) << 2); col += 4)
+          {
+            __m128i vsrc = _mm_lddqu_si128((__m128i *) &src[col]);
+            vsrc         = _mm_srai_epi32(_mm_add_epi32(vsrc, mm128_offset), shift10BitOut);
+            _mm_storeu_si128((__m128i *) &dst[col], vsrc);
+          }
+
+          for (; col < width; col += 2)
+          {
+            __m128i vsrc = _mm_loadl_epi64((__m128i *) &src[col]);
+            vsrc         = _mm_srai_epi32(_mm_add_epi32(vsrc, mm128_offset), shift10BitOut);
+            _mm_storel_epi64((__m128i *) &dst[col], vsrc);
+          }
+          src += srcStride;
+          dst += dstStride;
+        }
+      }
+    }
+    else
+    {
+      const int shift = IF_INTERNAL_FRAC_BITS(clpRng.bd);
+      for (row = 0; row < height; row++)
+      {
+        int col = 0;
+#ifdef USE_AVX2
+        if (vext >= AVX2)
+        {
+          __m256i mm256_offset = _mm256_set1_epi32(IF_INTERNAL_OFFS);
+          for (; col < ((width >> 3) << 3); col += 8)
+          {
+            __m256i vsrc = _mm256_lddqu_si256((__m256i *)&src[col]);
+            vsrc = _mm256_sub_epi32(_mm256_slli_epi32(vsrc, shift), mm256_offset);
+            _mm256_storeu_si256((__m256i *)&dst[col], vsrc);
+          }
+        }
+#endif
+
+        __m128i mm128_offset = _mm_set1_epi32(IF_INTERNAL_OFFS);
+        for (; col < ((width >> 2) << 2); col += 4)
+        {
+          __m128i vsrc = _mm_lddqu_si128((__m128i *)&src[col]);
+          vsrc = _mm_sub_epi32(_mm_slli_epi32(vsrc, shift), mm128_offset);
+          _mm_storeu_si128((__m128i *)&dst[col], vsrc);
+        }
+
+        for (; col < width; col += 2)
+        {
+          __m128i vsrc = _mm_loadl_epi64((__m128i *)&src[col]);
+          vsrc = _mm_sub_epi32(_mm_slli_epi32(vsrc, shift), mm128_offset);
+          _mm_storel_epi64((__m128i *)&dst[col], vsrc);
+        }
+        src += srcStride;
+        dst += dstStride;
+      }
+    }
+  }
+  else
+  {
+    if (width & 1)
+    {
+      InterpolationFilter::filterCopy<isFirst, isLast>(clpRng, src, srcStride, dst, dstStride, width, height,
+                                                       biMCForDMVR);
+      return;
+    }
+
+    CHECK(biMCForDMVR, "isLast must be false when biMCForDMVR is true");
+    const int shift = IF_INTERNAL_FRAC_BITS(clpRng.bd);
+    for (row = 0; row < height; row++)
+    {
+      int col = 0;
+#ifdef USE_AVX2
+      if (vext >= AVX2)
+      {
+        __m256i mm256_offset = _mm256_set1_epi32(IF_INTERNAL_OFFS);
+        __m256i mm256_min    = _mm256_set1_epi32(clpRng.min);
+        __m256i mm256_max    = _mm256_set1_epi32(clpRng.max);
+        for (; col < ((width >> 3) << 3); col += 8)
+        {
+          __m256i vsrc = _mm256_lddqu_si256((__m256i *) &src[col]);
+          vsrc         = _mm256_add_epi32(vsrc, mm256_offset);
+          if (shift <= 0)
+          {
+            vsrc = _mm256_slli_epi32(vsrc, (-shift));
+          }
+          else
+          {
+            vsrc = _mm256_srai_epi32(_mm256_add_epi32(vsrc, _mm256_set1_epi32(1 << (shift - 1))), shift);
+          }
+          vsrc = _mm256_min_epi32(mm256_max, _mm256_max_epi32(mm256_min, vsrc));
+
+          _mm256_storeu_si256((__m256i *) &dst[col], vsrc);
+        }
+      }
+#endif
+
+      __m128i mm128_offset = _mm_set1_epi32(IF_INTERNAL_OFFS);
+      __m128i mm128_min    = _mm_set1_epi32(clpRng.min);
+      __m128i mm128_max    = _mm_set1_epi32(clpRng.max);
+      for (; col < ((width >> 2) << 2); col += 4)
+      {
+        __m128i vsrc = _mm_lddqu_si128((__m128i *) &src[col]);
+        vsrc         = _mm_add_epi32(vsrc, mm128_offset);
+        if (shift <= 0)
+        {
+          vsrc = _mm_slli_epi32(vsrc, (-shift));
+        }
+        else
+        {
+          vsrc = _mm_srai_epi32(_mm_add_epi32(vsrc, _mm_set1_epi32(1 << (shift - 1))), shift);
+        }
+        vsrc = _mm_min_epi32(mm128_max, _mm_max_epi32(mm128_min, vsrc));
+
+        _mm_storeu_si128((__m128i *) &dst[col], vsrc);
+      }
+
+      for (; col < width; col += 2)
+      {
+        __m128i vsrc = _mm_loadl_epi64((__m128i *) &src[col]);
+        vsrc         = _mm_add_epi32(vsrc, mm128_offset);
+        if (shift <= 0)
+        {
+          vsrc = _mm_slli_epi32(vsrc, (-shift));
+        }
+        else
+        {
+          vsrc = _mm_srai_epi32(_mm_add_epi32(vsrc, _mm_set1_epi32(1 << (shift - 1))), shift);
+        }
+        vsrc = _mm_min_epi32(mm128_max, _mm_max_epi32(mm128_min, vsrc));
+
+        _mm_storel_epi64((__m128i *) &dst[col], vsrc);
+      }
+
+      src += srcStride;
+      dst += dstStride;
+    }
+  }
+}
+
+template< X86_VEXT vext >
+void xWeightedGeoBlk_HBD_SIMD(const PredictionUnit &pu, const uint32_t width, const uint32_t height, const ComponentID compIdx, const uint8_t splitDir, PelUnitBuf& predDst, PelUnitBuf& predSrc0, PelUnitBuf& predSrc1)
+{
+  Pel* dst = predDst.get(compIdx).buf;
+  Pel* src0 = predSrc0.get(compIdx).buf;
+  Pel* src1 = predSrc1.get(compIdx).buf;
+  int32_t strideDst = predDst.get(compIdx).stride;
+  int32_t strideSrc0 = predSrc0.get(compIdx).stride;
+  int32_t strideSrc1 = predSrc1.get(compIdx).stride;
+
+  const char    log2WeightBase = 3;
+  const ClpRng  clpRng = pu.cu->slice->clpRngs().comp[compIdx];
+  const int32_t shiftWeighted = IF_INTERNAL_FRAC_BITS(clpRng.bd) + log2WeightBase;
+  const int32_t offsetWeighted = (1 << (shiftWeighted - 1)) + (IF_INTERNAL_OFFS << log2WeightBase);
+
+  int16_t wIdx = floorLog2(pu.lwidth()) - GEO_MIN_CU_LOG2;
+  int16_t hIdx = floorLog2(pu.lheight()) - GEO_MIN_CU_LOG2;
+  int16_t angle = g_GeoParams[splitDir][0];
+  int16_t stepY = 0;
+  int16_t* weight = nullptr;
+  if (g_angle2mirror[angle] == 2)
+  {
+    stepY = -GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][(GEO_WEIGHT_MASK_SIZE - 1 - g_weightOffset[splitDir][hIdx][wIdx][1]) * GEO_WEIGHT_MASK_SIZE + g_weightOffset[splitDir][hIdx][wIdx][0]];
+  }
+  else if (g_angle2mirror[angle] == 1)
+  {
+    stepY = GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][g_weightOffset[splitDir][hIdx][wIdx][1] * GEO_WEIGHT_MASK_SIZE + (GEO_WEIGHT_MASK_SIZE - 1 - g_weightOffset[splitDir][hIdx][wIdx][0])];
+  }
+  else
+  {
+    stepY = GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][g_weightOffset[splitDir][hIdx][wIdx][1] * GEO_WEIGHT_MASK_SIZE + g_weightOffset[splitDir][hIdx][wIdx][0]];
+  }
+
+  const __m128i mmEight = _mm_set1_epi16(8);
+  const __m128i mmOffset = _mm_set1_epi32(offsetWeighted);
+  const __m128i mmShift = _mm_cvtsi32_si128(shiftWeighted);
+  const __m128i mmMin = _mm_set1_epi32(clpRng.min);
+  const __m128i mmMax = _mm_set1_epi32(clpRng.max);
+
+  if (compIdx != COMPONENT_Y && pu.chromaFormat == CHROMA_420)
+    stepY <<= 1;
+
+  if (width == 4)
+  {
+    // it will occur to chroma only
+    for (int y = 0; y < height; y++)
+    {
+      __m128i s0 = _mm_lddqu_si128((__m128i *) (src0));
+      __m128i s1 = _mm_lddqu_si128((__m128i *) (src1));
+      __m128i w0;
+      if (g_angle2mirror[angle] == 1)
+      {
+        w0 = _mm_loadu_si128((__m128i *) (weight - (8 - 1)));
+        const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+        w0 = _mm_shuffle_epi8(w0, shuffle_mask);
+      }
+      else
+      {
+        w0 = _mm_loadu_si128((__m128i *) (weight));
+      }
+      w0 = _mm_shuffle_epi8(w0, _mm_setr_epi8(0, 1, 4, 5, 8, 9, 12, 13, 0, 0, 0, 0, 0, 0, 0, 0));
+      __m128i w1 = _mm_sub_epi16(mmEight, w0);
+
+      w0 = _mm_cvtepi16_epi32(w0);
+      w1 = _mm_cvtepi16_epi32(w1);
+
+      s0 = _mm_add_epi32(_mm_mullo_epi32(s0, w0), _mm_mullo_epi32(s1, w1));
+      s0 = _mm_sra_epi32(_mm_add_epi32(s0, mmOffset), mmShift);
+      s0 = _mm_min_epi32(mmMax, _mm_max_epi32(s0, mmMin));
+
+      _mm_storeu_si128((__m128i *)dst, s0);
+
+      dst += strideDst;
+      src0 += strideSrc0;
+      src1 += strideSrc1;
+      weight += stepY;
+    }
+  }
+#ifdef USE_AVX2
+  else if ((vext >= AVX2) && (width >= 16))
+  {
+    const __m256i mmEightAVX2 = _mm256_set1_epi16(8);
+    const __m256i mmOffsetAVX2 = _mm256_set1_epi32(offsetWeighted);
+    const __m256i mmMinAVX2 = _mm256_set1_epi32(clpRng.min);
+    const __m256i mmMaxAVX2 = _mm256_set1_epi32(clpRng.max);
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width; x += 16)
+      {
+        __m256i s00 = _mm256_lddqu_si256((__m256i *) (src0 + x));
+        __m256i s01 = _mm256_lddqu_si256((__m256i *) (src0 + x + 8));
+        __m256i s10 = _mm256_lddqu_si256((__m256i *) (src1 + x));
+        __m256i s11 = _mm256_lddqu_si256((__m256i *) (src1 + x + 8));
+
+        __m256i w0 = _mm256_lddqu_si256((__m256i *) (weight + x));
+        if (compIdx != COMPONENT_Y && pu.chromaFormat != CHROMA_444)
+        {
+          const __m256i mask = _mm256_set_epi16(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+          __m256i w0p0, w0p1;
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0p0 = _mm256_lddqu_si256((__m256i *) (weight - (x << 1) - (16 - 1))); // first sub-sample the required weights.
+            w0p1 = _mm256_lddqu_si256((__m256i *) (weight - (x << 1) - 16 - (16 - 1)));
+            const __m256i shuffle_mask = _mm256_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0p0 = _mm256_shuffle_epi8(w0p0, shuffle_mask);
+            w0p0 = _mm256_permute4x64_epi64(w0p0, _MM_SHUFFLE(1, 0, 3, 2));
+            w0p1 = _mm256_shuffle_epi8(w0p1, shuffle_mask);
+            w0p1 = _mm256_permute4x64_epi64(w0p1, _MM_SHUFFLE(1, 0, 3, 2));
+          }
+          else
+          {
+            w0p0 = _mm256_lddqu_si256((__m256i *) (weight + (x << 1))); // first sub-sample the required weights.
+            w0p1 = _mm256_lddqu_si256((__m256i *) (weight + (x << 1) + 16));
+          }
+          w0p0 = _mm256_mullo_epi16(w0p0, mask);
+          w0p1 = _mm256_mullo_epi16(w0p1, mask);
+          w0 = _mm256_packs_epi16(w0p0, w0p1);
+          w0 = _mm256_permute4x64_epi64(w0, _MM_SHUFFLE(3, 1, 2, 0));
+        }
+        else
+        {
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0 = _mm256_lddqu_si256((__m256i *) (weight - x - (16 - 1)));
+            const __m256i shuffle_mask = _mm256_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0 = _mm256_shuffle_epi8(w0, shuffle_mask);
+            w0 = _mm256_permute4x64_epi64(w0, _MM_SHUFFLE(1, 0, 3, 2));
+          }
+          else
+          {
+            w0 = _mm256_lddqu_si256((__m256i *) (weight + x));
+          }
+        }
+        __m256i w1 = _mm256_sub_epi16(mmEightAVX2, w0);
+
+        __m256i w00 = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(w0));
+        __m256i w01 = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(_mm256_permute4x64_epi64(w0, 0xee)));
+        __m256i w10 = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(w1));
+        __m256i w11 = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(_mm256_permute4x64_epi64(w1, 0xee)));
+
+        __m256i s0 = _mm256_add_epi32(_mm256_mullo_epi32(s00, w00), _mm256_mullo_epi32(s10, w10));
+        __m256i s1 = _mm256_add_epi32(_mm256_mullo_epi32(s01, w01), _mm256_mullo_epi32(s11, w11));
+
+        s0 = _mm256_sra_epi32(_mm256_add_epi32(s0, mmOffsetAVX2), mmShift);
+        s1 = _mm256_sra_epi32(_mm256_add_epi32(s1, mmOffsetAVX2), mmShift);
+
+        s0 = _mm256_min_epi32(mmMaxAVX2, _mm256_max_epi32(s0, mmMinAVX2));
+        s1 = _mm256_min_epi32(mmMaxAVX2, _mm256_max_epi32(s1, mmMinAVX2));
+
+        _mm256_storeu_si256((__m256i *) (dst + x), s0);
+        _mm256_storeu_si256((__m256i *) (dst + x + 8), s1);
+      }
+
+      dst += strideDst;
+      src0 += strideSrc0;
+      src1 += strideSrc1;
+      weight += stepY;
+    }
+  }
+#endif
+  else
+  {
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width; x += 8)
+      {
+        __m128i s00 = _mm_lddqu_si128((__m128i *) (src0 + x));
+        __m128i s01 = _mm_lddqu_si128((__m128i *) (src0 + x + 4));
+        __m128i s10 = _mm_lddqu_si128((__m128i *) (src1 + x));
+        __m128i s11 = _mm_lddqu_si128((__m128i *) (src1 + x + 4));
+        __m128i w0;
+        if (compIdx != COMPONENT_Y && pu.chromaFormat != CHROMA_444)
+        {
+          const __m128i mask = _mm_set_epi16(0, 1, 0, 1, 0, 1, 0, 1);
+          __m128i w0p0, w0p1;
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0p0 = _mm_lddqu_si128((__m128i *) (weight - (x << 1) - (8 - 1))); // first sub-sample the required weights.
+            w0p1 = _mm_lddqu_si128((__m128i *) (weight - (x << 1) - 8 - (8 - 1)));
+            const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0p0 = _mm_shuffle_epi8(w0p0, shuffle_mask);
+            w0p1 = _mm_shuffle_epi8(w0p1, shuffle_mask);
+          }
+          else
+          {
+            w0p0 = _mm_lddqu_si128((__m128i *) (weight + (x << 1))); // first sub-sample the required weights.
+            w0p1 = _mm_lddqu_si128((__m128i *) (weight + (x << 1) + 8));
+          }
+          w0p0 = _mm_mullo_epi16(w0p0, mask);
+          w0p1 = _mm_mullo_epi16(w0p1, mask);
+          w0 = _mm_packs_epi32(w0p0, w0p1);
+        }
+        else
+        {
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0 = _mm_lddqu_si128((__m128i *) (weight - x - (8 - 1)));  // 16b
+            const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0 = _mm_shuffle_epi8(w0, shuffle_mask);
+          }
+          else
+          {
+            w0 = _mm_lddqu_si128((__m128i *) (weight + x));
+          }
+        }
+        __m128i w1 = _mm_sub_epi16(mmEight, w0);
+
+        __m128i w00 = _mm_cvtepi16_epi32(w0);
+        __m128i w01 = _mm_cvtepi16_epi32(_mm_shuffle_epi32(w0, 0xee));
+        __m128i w10 = _mm_cvtepi16_epi32(w1);
+        __m128i w11 = _mm_cvtepi16_epi32(_mm_shuffle_epi32(w1, 0xee));
+
+        __m128i s0 = _mm_add_epi32(_mm_mullo_epi32(s00, w00), _mm_mullo_epi32(s10, w10));
+        __m128i s1 = _mm_add_epi32(_mm_mullo_epi32(s01, w01), _mm_mullo_epi32(s11, w11));
+
+        s0 = _mm_sra_epi32(_mm_add_epi32(s0, mmOffset), mmShift);
+        s1 = _mm_sra_epi32(_mm_add_epi32(s1, mmOffset), mmShift);
+
+        s0 = _mm_min_epi32(mmMax, _mm_max_epi32(s0, mmMin));
+        s1 = _mm_min_epi32(mmMax, _mm_max_epi32(s1, mmMin));
+
+        _mm_storeu_si128((__m128i *) (dst + x), s0);
+        _mm_storeu_si128((__m128i *) (dst + x + 4), s1);
+      }
+      dst += strideDst;
+      src0 += strideSrc0;
+      src1 += strideSrc1;
+      weight += stepY;
+    }
+  }
+}
+#endif
 template<X86_VEXT vext, int N, bool isVertical, bool isFirst, bool isLast>
 static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel *dst, int dstStride, int width, int height, TFilterCoeff const *coeff, bool biMCForDMVR)
 {
@@ -1080,7 +2161,7 @@ static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel
   src -= ( N/2 - 1 ) * cStride;
 
   int offset;
-  int headRoom = std::max<int>( 2, ( IF_INTERNAL_PREC - clpRng.bd ) );
+  int headRoom = IF_INTERNAL_FRAC_BITS(clpRng.bd);
   int shift    = IF_FILTER_PREC;
   // with the current settings (IF_INTERNAL_PREC = 14 and IF_FILTER_PREC = 6), though headroom can be
   // negative for bit depths greater than 14, shift will remain non-negative for bit depths of 8->20
@@ -1112,23 +2193,44 @@ static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel
       offset = 1 << (shift - 1);
     }
   }
-  if( clpRng.bd <= 10 )
   {
     if( N == 8 && !( width & 0x07 ) )
     {
       if( !isVertical )
       {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        if (vext >= AVX2)
+        {
+          simdInterpolateHorM8_HBD_AVX2<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+        }
+        else
+        {
+          simdInterpolateHorM8_HBD<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+        }
+#else
         if( vext>= AVX2 )
           simdInterpolateHorM8_AVX2<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
         else
           simdInterpolateHorM8<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       }
       else
       {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        if (vext >= AVX2)
+        {
+          simdInterpolateVerM8_HBD_AVX2<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+        }
+        else
+        {
+          simdInterpolateVerM8_HBD<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+        }
+#else
         if( vext>= AVX2 )
           simdInterpolateVerM8_AVX2<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
         else
           simdInterpolateVerM8<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       }
       return;
     }
@@ -1136,10 +2238,18 @@ static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel
     {
       if( !isVertical )
       {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        simdInterpolateHorM4_HBD<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+#else
         simdInterpolateHorM4<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       }
       else
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        simdInterpolateVerM4_HBD<vext, 8, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+#else
         simdInterpolateVerM4<vext, 8, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       return;
     }
     else if( N == 4 && !( width & 0x03 ) )
@@ -1148,34 +2258,79 @@ static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel
       {
         if( ( width % 8 ) == 0 )
         {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+          if (vext >= AVX2)
+          {
+            simdInterpolateHorM8_HBD_AVX2<vext, 4, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+          }
+          else
+          {
+            simdInterpolateHorM8_HBD<vext, 4, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+          }
+#else
           if( vext>= AVX2 )
             simdInterpolateHorM8_AVX2<vext, 4, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
           else
             simdInterpolateHorM8<vext, 4, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
         }
         else
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+          simdInterpolateHorM4_HBD<vext, 4, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+#else
           simdInterpolateHorM4<vext, 4, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       }
       else
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        simdInterpolateVerM4_HBD<vext, 4, isLast>(src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c);
+#else
         simdInterpolateVerM4<vext, 4, isLast>( src, srcStride, dst, dstStride, width, height, shift, offset, clpRng, c );
+#endif
       return;
     }
     else if (biMCForDMVR)
     {
       if (N == 2 && !(width & 0x03))
       {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+        if (vext >= AVX2)
+        {
+          simdInterpolateN2_HBD_M4_AVX2<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+        }
+        else
+        {
+          simdInterpolateN2_HBD_M4<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+        }
+#else
+        if (clpRng.bd <= 10)
+        {
         simdInterpolateN2_10BIT_M4<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+        }
+        else
+        {
+          simdInterpolateN2_HIGHBIT_M4<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+        }
+#endif
         return;
       }
     }
     else if( N == 2 && !( width & 0x07 ) )
     {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+    simdInterpolateN2_M8_HBD<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+#else
       simdInterpolateN2_M8<vext, isLast>( src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c );
+#endif
       return;
     }
     else if( N == 2 && !( width & 0x03 ) )
     {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+      simdInterpolateN2_M4_HBD<vext, isLast>(src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c);
+#else
       simdInterpolateN2_M4<vext, isLast>( src, srcStride, dst, dstStride, cStride, width, height, shift, offset, clpRng, c );
+#endif
       return;
     }
   }
@@ -1217,9 +2372,8 @@ static void simdFilter( const ClpRng& clpRng, Pel const *src, int srcStride, Pel
   }
 }
 
-#if JVET_O0280_SIMD_TRIANGLE_WEIGHTING
 template< X86_VEXT vext >
-void xWeightedTriangleBlk_SSE(const PredictionUnit &pu, const uint32_t width, const uint32_t height, const ComponentID compIdx, const bool splitDir, PelUnitBuf& predDst, PelUnitBuf& predSrc0, PelUnitBuf& predSrc1)
+void xWeightedGeoBlk_SSE(const PredictionUnit &pu, const uint32_t width, const uint32_t height, const ComponentID compIdx, const uint8_t splitDir, PelUnitBuf& predDst, PelUnitBuf& predSrc0, PelUnitBuf& predSrc1)
 {
   Pel* dst = predDst.get(compIdx).buf;
   Pel* src0 = predSrc0.get(compIdx).buf;
@@ -1228,16 +2382,31 @@ void xWeightedTriangleBlk_SSE(const PredictionUnit &pu, const uint32_t width, co
   int32_t strideSrc0 = predSrc0.get(compIdx).stride;
   int32_t strideSrc1 = predSrc1.get(compIdx).stride;
 
-  int8_t log2Width = floorLog2(width) - 1;
-  int8_t log2Height = floorLog2(height) - 1;
   const char    log2WeightBase = 3;
   const ClpRng  clpRng = pu.cu->slice->clpRngs().comp[compIdx];
-  const int32_t shiftWeighted = std::max<int>(2, (IF_INTERNAL_PREC - clpRng.bd)) + log2WeightBase;
+  const int32_t shiftWeighted = IF_INTERNAL_FRAC_BITS(clpRng.bd) + log2WeightBase;
   const int32_t offsetWeighted = (1 << (shiftWeighted - 1)) + (IF_INTERNAL_OFFS << log2WeightBase);
-  const bool    longWeight = (compIdx == COMPONENT_Y);
-  const bool    shortWeight = !longWeight;
 
-  int16_t *weight = g_triangleWeights[shortWeight][splitDir][log2Height][log2Width];
+  int16_t wIdx = floorLog2(pu.lwidth()) - GEO_MIN_CU_LOG2;
+  int16_t hIdx = floorLog2(pu.lheight()) - GEO_MIN_CU_LOG2;
+  int16_t angle = g_GeoParams[splitDir][0];
+  int16_t stepY = 0;
+  int16_t* weight = nullptr;
+  if (g_angle2mirror[angle] == 2)
+  {
+    stepY = -GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][(GEO_WEIGHT_MASK_SIZE - 1 - g_weightOffset[splitDir][hIdx][wIdx][1]) * GEO_WEIGHT_MASK_SIZE + g_weightOffset[splitDir][hIdx][wIdx][0]];
+  }
+  else if (g_angle2mirror[angle] == 1)
+  {
+    stepY = GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][g_weightOffset[splitDir][hIdx][wIdx][1] * GEO_WEIGHT_MASK_SIZE + (GEO_WEIGHT_MASK_SIZE - 1 - g_weightOffset[splitDir][hIdx][wIdx][0])];
+  }
+  else
+  {
+    stepY = GEO_WEIGHT_MASK_SIZE;
+    weight = &g_globalGeoWeights[g_angle2mask[angle]][g_weightOffset[splitDir][hIdx][wIdx][1] * GEO_WEIGHT_MASK_SIZE + g_weightOffset[splitDir][hIdx][wIdx][0]];
+  }
 
   const __m128i mmEight = _mm_set1_epi16(8);
   const __m128i mmOffset = _mm_set1_epi32(offsetWeighted);
@@ -1245,36 +2414,27 @@ void xWeightedTriangleBlk_SSE(const PredictionUnit &pu, const uint32_t width, co
   const __m128i mmMin = _mm_set1_epi16(clpRng.min);
   const __m128i mmMax = _mm_set1_epi16(clpRng.max);
 
-  if (width == 2)
+  if (compIdx != COMPONENT_Y && pu.chromaFormat == CHROMA_420)
+    stepY <<= 1;
+  if (width == 4)
   {
-    for (int y = 0; y < height; y++)
-    {
-      __m128i s0 = _mm_cvtsi32_si128(*(uint32_t *) src0);
-      __m128i s1 = _mm_cvtsi32_si128(*(uint32_t *) src1);
-      __m128i w0 = _mm_cvtsi32_si128(*(uint32_t *) weight);
-      __m128i w1 = _mm_sub_epi16(mmEight, w0);
-
-      s0 = _mm_unpacklo_epi16(s0, s1);
-      w0 = _mm_unpacklo_epi16(w0, w1);
-      s0 = _mm_add_epi32(_mm_madd_epi16(s0, w0), mmOffset);
-      s0 = _mm_sra_epi32(s0, mmShift);
-      s0 = _mm_packs_epi32(s0, s0);
-      s0 = _mm_min_epi16(mmMax, _mm_max_epi16(s0, mmMin));
-
-      *(uint32_t *) dst = _mm_cvtsi128_si32(s0);
-      dst += strideDst;
-      src0 += strideSrc0;
-      src1 += strideSrc1;
-      weight += 2;
-    }
-  }
-  else if(width == 4)
-  {
+    // it will occur to chroma only
     for (int y = 0; y < height; y++)
     {
       __m128i s0 = _mm_loadl_epi64((__m128i *) (src0));
       __m128i s1 = _mm_loadl_epi64((__m128i *) (src1));
-      __m128i w0 = _mm_loadl_epi64((__m128i *) (weight));
+      __m128i w0;
+      if (g_angle2mirror[angle] == 1)
+      {
+        w0 = _mm_loadu_si128((__m128i *) (weight - (8 - 1)));
+        const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+        w0 = _mm_shuffle_epi8(w0, shuffle_mask);
+      }
+      else
+      {
+        w0 = _mm_loadu_si128((__m128i *) (weight));
+      }
+      w0 = _mm_shuffle_epi8(w0, _mm_setr_epi8(0, 1, 4, 5, 8, 9, 12, 13, 0, 0, 0, 0, 0, 0, 0, 0));
       __m128i w1 = _mm_sub_epi16(mmEight, w0);
       s0 = _mm_unpacklo_epi16(s0, s1);
       w0 = _mm_unpacklo_epi16(w0, w1);
@@ -1286,18 +2446,128 @@ void xWeightedTriangleBlk_SSE(const PredictionUnit &pu, const uint32_t width, co
       dst += strideDst;
       src0 += strideSrc0;
       src1 += strideSrc1;
-      weight += 4;
+      weight += stepY;
     }
   }
+#if USE_AVX2
+  else if (width >= 16)
+  {
+    const __m256i mmEightAVX2 = _mm256_set1_epi16(8);
+    const __m256i mmOffsetAVX2 = _mm256_set1_epi32(offsetWeighted);
+    const __m256i mmMinAVX2 = _mm256_set1_epi16(clpRng.min);
+    const __m256i mmMaxAVX2 = _mm256_set1_epi16(clpRng.max);
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width; x += 16)
+      {
+        __m256i s0 = _mm256_lddqu_si256((__m256i *) (src0 + x)); // why not aligned with 128/256 bit boundaries
+        __m256i s1 = _mm256_lddqu_si256((__m256i *) (src1 + x));
+
+        __m256i w0 = _mm256_lddqu_si256((__m256i *) (weight + x));
+        if (compIdx != COMPONENT_Y &&  pu.chromaFormat != CHROMA_444)
+        {
+          const __m256i mask = _mm256_set_epi16(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+          __m256i w0p0, w0p1;
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0p0 = _mm256_lddqu_si256((__m256i *) (weight - (x << 1) - (16 - 1))); // first sub-sample the required weights.
+            w0p1 = _mm256_lddqu_si256((__m256i *) (weight - (x << 1) - 16 - (16 - 1)));
+            const __m256i shuffle_mask = _mm256_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0p0 = _mm256_shuffle_epi8(w0p0, shuffle_mask);
+            w0p0 = _mm256_permute4x64_epi64(w0p0, _MM_SHUFFLE(1, 0, 3, 2));
+            w0p1 = _mm256_shuffle_epi8(w0p1, shuffle_mask);
+            w0p1 = _mm256_permute4x64_epi64(w0p1, _MM_SHUFFLE(1, 0, 3, 2));
+          }
+          else
+          {
+            w0p0 = _mm256_lddqu_si256((__m256i *) (weight + (x << 1))); // first sub-sample the required weights.
+            w0p1 = _mm256_lddqu_si256((__m256i *) (weight + (x << 1) + 16));
+          }
+          w0p0 = _mm256_mullo_epi16(w0p0, mask);
+          w0p1 = _mm256_mullo_epi16(w0p1, mask);
+          w0 = _mm256_packs_epi16(w0p0, w0p1);
+          w0 = _mm256_permute4x64_epi64(w0, _MM_SHUFFLE(3, 1, 2, 0));
+        }
+        else
+        {
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0 = _mm256_lddqu_si256((__m256i *) (weight - x - (16 - 1)));
+            const __m256i shuffle_mask = _mm256_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0 = _mm256_shuffle_epi8(w0, shuffle_mask);
+            w0 = _mm256_permute4x64_epi64(w0, _MM_SHUFFLE(1, 0, 3, 2));
+          }
+          else
+          {
+            w0 = _mm256_lddqu_si256((__m256i *) (weight + x));
+          }
+        }
+        __m256i w1 = _mm256_sub_epi16(mmEightAVX2, w0);
+
+        __m256i s0tmp = _mm256_unpacklo_epi16(s0, s1);
+        __m256i w0tmp = _mm256_unpacklo_epi16(w0, w1);
+        s0tmp = _mm256_add_epi32(_mm256_madd_epi16(s0tmp, w0tmp), mmOffsetAVX2);
+        s0tmp = _mm256_sra_epi32(s0tmp, mmShift);
+
+        s0 = _mm256_unpackhi_epi16(s0, s1);
+        w0 = _mm256_unpackhi_epi16(w0, w1);
+        s0 = _mm256_add_epi32(_mm256_madd_epi16(s0, w0), mmOffsetAVX2);
+        s0 = _mm256_sra_epi32(s0, mmShift);
+
+        s0 = _mm256_packs_epi32(s0tmp, s0);
+        s0 = _mm256_min_epi16(mmMaxAVX2, _mm256_max_epi16(s0, mmMinAVX2));
+        _mm256_storeu_si256((__m256i *) (dst + x), s0);
+      }
+      dst += strideDst;
+      src0 += strideSrc0;
+      src1 += strideSrc1;
+      weight += stepY;
+    }
+  }
+#endif
   else
   {
     for (int y = 0; y < height; y++)
     {
       for (int x = 0; x < width; x += 8)
       {
-        __m128i s0 = _mm_loadu_si128((__m128i *) (src0 + x));
-        __m128i s1 = _mm_loadu_si128((__m128i *) (src1 + x));
-        __m128i w0 = _mm_loadu_si128((__m128i *) (weight + x));
+        __m128i s0 = _mm_lddqu_si128((__m128i *) (src0 + x));
+        __m128i s1 = _mm_lddqu_si128((__m128i *) (src1 + x));
+        __m128i w0;
+        if (compIdx != COMPONENT_Y && pu.chromaFormat != CHROMA_444)
+        {
+          const __m128i mask = _mm_set_epi16(0, 1, 0, 1, 0, 1, 0, 1);
+          __m128i w0p0, w0p1;
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0p0 = _mm_lddqu_si128((__m128i *) (weight - (x << 1) - (8 - 1))); // first sub-sample the required weights.
+            w0p1 = _mm_lddqu_si128((__m128i *) (weight - (x << 1) - 8 - (8 - 1)));
+            const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0p0 = _mm_shuffle_epi8(w0p0, shuffle_mask);
+            w0p1 = _mm_shuffle_epi8(w0p1, shuffle_mask);
+          }
+          else
+          {
+            w0p0 = _mm_lddqu_si128((__m128i *) (weight + (x << 1))); // first sub-sample the required weights.
+            w0p1 = _mm_lddqu_si128((__m128i *) (weight + (x << 1) + 8));
+          }
+          w0p0 = _mm_mullo_epi16(w0p0, mask);
+          w0p1 = _mm_mullo_epi16(w0p1, mask);
+          w0 = _mm_packs_epi32(w0p0, w0p1);
+        }
+        else
+        {
+          if (g_angle2mirror[angle] == 1)
+          {
+            w0 = _mm_lddqu_si128((__m128i *) (weight - x - (8 - 1)));
+            const __m128i shuffle_mask = _mm_set_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+            w0 = _mm_shuffle_epi8(w0, shuffle_mask);
+          }
+          else
+          {
+            w0 = _mm_lddqu_si128((__m128i *) (weight + x));
+          }
+        }
         __m128i w1 = _mm_sub_epi16(mmEight, w0);
 
         __m128i s0tmp = _mm_unpacklo_epi16(s0, s1);
@@ -1317,15 +2587,53 @@ void xWeightedTriangleBlk_SSE(const PredictionUnit &pu, const uint32_t width, co
       dst += strideDst;
       src0 += strideSrc0;
       src1 += strideSrc1;
-      weight += width;
+      weight += stepY;
     }
   }
 }
-#endif
 
 template <X86_VEXT vext>
 void InterpolationFilter::_initInterpolationFilterX86()
 {
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+  // [taps][bFirst][bLast]
+  m_filterHor[0][0][0] = simdFilter<vext, 8, false, false, false>;
+  m_filterHor[0][0][1] = simdFilter<vext, 8, false, false, true>;
+  m_filterHor[0][1][0] = simdFilter<vext, 8, false, true, false>;
+  m_filterHor[0][1][1] = simdFilter<vext, 8, false, true, true>;
+
+  m_filterHor[1][0][0] = simdFilter<vext, 4, false, false, false>;
+  m_filterHor[1][0][1] = simdFilter<vext, 4, false, false, true>;
+  m_filterHor[1][1][0] = simdFilter<vext, 4, false, true, false>;
+  m_filterHor[1][1][1] = simdFilter<vext, 4, false, true, true>;
+
+  m_filterHor[2][0][0] = simdFilter<vext, 2, false, false, false>;
+  m_filterHor[2][0][1] = simdFilter<vext, 2, false, false, true>;
+  m_filterHor[2][1][0] = simdFilter<vext, 2, false, true, false>;
+  m_filterHor[2][1][1] = simdFilter<vext, 2, false, true, true>;
+
+  m_filterVer[0][0][0] = simdFilter<vext, 8, true, false, false>;
+  m_filterVer[0][0][1] = simdFilter<vext, 8, true, false, true>;
+  m_filterVer[0][1][0] = simdFilter<vext, 8, true, true, false>;
+  m_filterVer[0][1][1] = simdFilter<vext, 8, true, true, true>;
+
+  m_filterVer[1][0][0] = simdFilter<vext, 4, true, false, false>;
+  m_filterVer[1][0][1] = simdFilter<vext, 4, true, false, true>;
+  m_filterVer[1][1][0] = simdFilter<vext, 4, true, true, false>;
+  m_filterVer[1][1][1] = simdFilter<vext, 4, true, true, true>;
+
+  m_filterVer[2][0][0] = simdFilter<vext, 2, true, false, false>;
+  m_filterVer[2][0][1] = simdFilter<vext, 2, true, false, true>;
+  m_filterVer[2][1][0] = simdFilter<vext, 2, true, true, false>;
+  m_filterVer[2][1][1] = simdFilter<vext, 2, true, true, true>;
+
+  m_filterCopy[0][0] = simdFilterCopy_HBD<vext, false, false>;
+  m_filterCopy[0][1] = simdFilterCopy_HBD<vext, false, true>;
+  m_filterCopy[1][0] = simdFilterCopy_HBD<vext, true, false>;
+  m_filterCopy[1][1] = simdFilterCopy_HBD<vext, true, true>;
+
+  m_weightedGeoBlk = xWeightedGeoBlk_HBD_SIMD<vext>;
+#else
   // [taps][bFirst][bLast]
   m_filterHor[0][0][0] = simdFilter<vext, 8, false, false, false>;
   m_filterHor[0][0][1] = simdFilter<vext, 8, false, false, true>;
@@ -1362,8 +2670,7 @@ void InterpolationFilter::_initInterpolationFilterX86()
   m_filterCopy[1][0]   = simdFilterCopy<vext, true, false>;
   m_filterCopy[1][1]   = simdFilterCopy<vext, true, true>;
 
-#if JVET_O0280_SIMD_TRIANGLE_WEIGHTING
-  m_weightedTriangleBlk = xWeightedTriangleBlk_SSE<vext>;
+  m_weightedGeoBlk = xWeightedGeoBlk_SSE<vext>;
 #endif
 }
 

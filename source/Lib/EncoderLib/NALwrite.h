@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -58,9 +58,10 @@ struct OutputNALUnit : public NALUnit
    */
   OutputNALUnit(
     NalUnitType nalUnitType,
+    uint32_t layerId = 0,
     uint32_t temporalID = 0,
     uint32_t reserved_zero_6bits = 0)
-  : NALUnit(nalUnitType, temporalID, reserved_zero_6bits)
+  : NALUnit( nalUnitType, temporalID, reserved_zero_6bits, 0, layerId )
   , m_Bitstream()
   {}
 
@@ -74,12 +75,13 @@ struct OutputNALUnit : public NALUnit
   OutputBitstream m_Bitstream;
 };
 
-void write(std::ostream& out, OutputNALUnit& nalu);
+void writeNaluWithHeader(std::ostream& out, OutputNALUnit& nalu);
+void writeNaluContent(std::ostream& out, OutputNALUnit& nalu);
 
 inline NALUnitEBSP::NALUnitEBSP(OutputNALUnit& nalu)
   : NALUnit(nalu)
 {
-  write(m_nalUnitData, nalu);
+  writeNaluWithHeader(m_nalUnitData, nalu);
 }
 
 //! \}

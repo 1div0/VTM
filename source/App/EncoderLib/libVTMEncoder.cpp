@@ -96,8 +96,8 @@ public:
     vtm_settings = *settings;
 
     xInitLibCfg();
-    m_cEncLib.create(); // The part we need from xCreateLib
-    m_cEncLib.init(false, this); // xInitLib
+    m_cEncLib.create(0); // The part we need from xCreateLib
+    // m_cEncLib.init(false, this); // xInitLib
     
     UnitArea unitArea( m_chromaFormatIDC, Area( 0, 0, m_iSourceWidth, m_iSourceHeight ) );
     origPic.create( unitArea );
@@ -129,7 +129,7 @@ public:
   {
     const bool bEos = false;
     const InputColourSpaceConversion snrCSC = (!m_snrInternalColourSpace) ? m_inputColourSpaceConvert : IPCOLOURSPACE_UNCHANGED;
-    m_cEncLib.encode( bEos, flushing ? 0 : &origPic, flushing ? 0 : &origPic2, snrCSC, recBufList, iNumEncoded );
+    // m_cEncLib.encode( bEos, flushing ? 0 : &origPic, flushing ? 0 : &origPic2, snrCSC, recBufList, iNumEncoded );
   }
 
 protected:

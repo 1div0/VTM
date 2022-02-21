@@ -55,12 +55,12 @@ void initFrameRetrieval(vtmDecoderWrapper *d)
 
   if (d->m_iMaxTemporalLayer == -1 || d->m_iMaxTemporalLayer >= maxNrSublayers)
   {
-    d->numReorderPicsHighestTid = activeSPS->getNumReorderPics(maxNrSublayers - 1);
+    d->numReorderPicsHighestTid = activeSPS->getMaxNumReorderPics(maxNrSublayers - 1);
     d->maxDecPicBufferingHighestTid = activeSPS->getMaxDecPicBuffering(maxNrSublayers - 1);
   }
   else
   {
-    d->numReorderPicsHighestTid = activeSPS->getNumReorderPics(d->m_iMaxTemporalLayer);
+    d->numReorderPicsHighestTid = activeSPS->getMaxNumReorderPics(d->m_iMaxTemporalLayer);
     d->maxDecPicBufferingHighestTid = activeSPS->getMaxDecPicBuffering(d->m_iMaxTemporalLayer);
   }
 
@@ -192,7 +192,7 @@ extern "C" {
         }
         else
         {
-          bNewPicture = d->m_cDecLib.decode(nalu, d->m_iSkipFrame, d->m_iPOCLastDisplay);
+          bNewPicture = d->m_cDecLib.decode(nalu, d->m_iSkipFrame, d->m_iPOCLastDisplay, 0);
           if (bNewPicture)
           {
             // We encountered a new picture in this NAL unit. This means: we will filter the now complete former
@@ -203,7 +203,7 @@ extern "C" {
       }
 
       // Filter the picture if decoding is complete
-      if ((bNewPicture || eof || nalu.m_nalUnitType == NAL_UNIT_EOS) && !d->m_cDecLib.getFirstSliceInSequence())
+      if ((bNewPicture || eof || nalu.m_nalUnitType == NAL_UNIT_EOS) && !d->m_cDecLib.getFirstSliceInSequence(0))
       {
 
         int poc;
@@ -215,7 +215,7 @@ extern "C" {
         d->loopFiltered = (nalu.m_nalUnitType == NAL_UNIT_EOS);
       }
       else if ((bNewPicture || eof || nalu.m_nalUnitType == NAL_UNIT_EOS) && 
-               d->m_cDecLib.getFirstSliceInSequence())
+               d->m_cDecLib.getFirstSliceInSequence(0))
       {
         d->m_cDecLib.setFirstSliceInPicture(true);
       }
@@ -233,13 +233,8 @@ extern "C" {
           d->nrOfTimesToCheckForOutputPictures++;
           d->m_cDecLib.setFirstSliceInPicture(false);
         }
-#if JVET_N0865_GRA2GDR
-        if (!bNewPicture && ((nalu.m_nalUnitType >= NAL_UNIT_CODED_SLICE_TRAIL && nalu.m_nalUnitType <= NAL_UNIT_RESERVED_VCL_15)
+        if (!bNewPicture && ((nalu.m_nalUnitType >= NAL_UNIT_CODED_SLICE_TRAIL && nalu.m_nalUnitType <= NAL_UNIT_RESERVED_VCL_4)
           || (nalu.m_nalUnitType >= NAL_UNIT_CODED_SLICE_IDR_W_RADL && nalu.m_nalUnitType <= NAL_UNIT_CODED_SLICE_GDR)))
-#else
-        if (!bNewPicture && ((nalu.m_nalUnitType >= NAL_UNIT_CODED_SLICE_TRAIL && nalu.m_nalUnitType <= NAL_UNIT_RESERVED_VCL_15)
-          || (nalu.m_nalUnitType >= NAL_UNIT_CODED_SLICE_IDR_W_RADL && nalu.m_nalUnitType <= NAL_UNIT_CODED_SLICE_GRA)))
-#endif
         {
           d->nrOfTimesToCheckForOutputPictures++;
         }
@@ -317,7 +312,7 @@ extern "C" {
       iterPic++;
       d->pcListPic_readIdx++;
     }
-    // We reached the end of the list wothout finding an output picture
+    // We reached the end of the list without finding an output picture
     if (d->nrOfTimesToCheckForOutputPictures > 0)
     {
       // Start the whole process over again
@@ -327,7 +322,7 @@ extern "C" {
     }
     if (d->flushOutput)
     {
-      // Flushing is over. There nothing we can decode anymore. The end.
+      // Flushing is over. There's nothing we can decode anymore. The end.
       d->pcListPic->clear();
       d->m_iPOCLastDisplay = -MAX_INT;
       d->flushOutput = false;

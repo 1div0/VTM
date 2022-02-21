@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,6 +72,10 @@ public:
 #if WCG_EXT
   CPelBuf               orgLuma;
 #endif
+  const Pel*            mask;
+  int                   maskStride;
+  int                   stepX;
+  int                   maskStride2;
   int                   step;
   FpDistFunc            distFunc;
   int                   bitDepth;
@@ -90,7 +94,12 @@ public:
   int                   cShiftX;
   int                   cShiftY;
   DistParam() :
-  org(), cur(), step( 1 ), bitDepth( 0 ), useMR( false ), applyWeight( false ), isBiPred( false ), wpCur( nullptr ), compID( MAX_NUM_COMPONENT ), maximumDistortionForEarlyExit( std::numeric_limits<Distortion>::max() ), subShift( 0 )
+  org(), cur(),
+  mask( nullptr ),
+  maskStride( 0 ),
+  stepX(0),
+  maskStride2(0),
+  step( 1 ), bitDepth( 0 ), useMR( false ), applyWeight( false ), isBiPred( false ), wpCur( nullptr ), compID( MAX_NUM_COMPONENT ), maximumDistortionForEarlyExit( std::numeric_limits<Distortion>::max() ), subShift( 0 )
   , cShiftX(-1), cShiftY(-1)
   { }
 };
@@ -105,6 +114,8 @@ private:
   CostMode                m_costMode;
   double                  m_distortionWeight[MAX_NUM_COMPONENT]; // only chroma values are used.
   double                  m_dLambda;
+  bool                   m_isLosslessRDCost;
+
 #if WCG_EXT
   double                  m_dLambda_unadjusted; // TODO: check is necessary
   double                  m_DistScaleUnadjusted;
@@ -116,7 +127,11 @@ private:
   ChromaFormat            m_cf;
 #endif
   double                  m_DistScale;
-  double                  m_dLambdaMotionSAD[2 /* 0=standard, 1=for transquant bypass when mixed-lossless cost evaluation enabled*/];
+  double                  m_dLambdaMotionSAD;
+  double                  m_lambdaStore[2][3];   // 0-org; 1-act
+  double                  m_DistScaleStore[2][3]; // 0-org; 1-act
+  bool                    m_resetStore;
+  int                     m_pairCheck;
 
   // for motion cost
   Mv                      m_mvPredictor;
@@ -146,8 +161,12 @@ public:
   double        getLambda()           { return m_dLambda; }
 #endif
   double        getChromaWeight()     { return ((m_distortionWeight[COMPONENT_Cb] + m_distortionWeight[COMPONENT_Cr]) / 2.0); }
+#if RDOQ_CHROMA_LAMBDA
+  double        getDistortionWeight   ( const ComponentID compID ) const { return m_distortionWeight[compID % MAX_NUM_COMPONENT]; }
+#endif
 
   void          setCostMode(CostMode m) { m_costMode = m; }
+  void          setLosslessRDCost(bool m) { m_isLosslessRDCost = m; }
 
   // Distortion Functions
   void          init();
@@ -160,9 +179,10 @@ public:
   void           setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY , int iRefStride, int bitDepth, ComponentID compID, int subShiftMode = 0, int step = 1, bool useHadamard = false );
   void           setDistParam( DistParam &rcDP, const CPelBuf &org, const CPelBuf &cur, int bitDepth, ComponentID compID, bool useHadamard = false );
   void           setDistParam( DistParam &rcDP, const Pel* pOrg, const Pel* piRefY, int iOrgStride, int iRefStride, int bitDepth, ComponentID compID, int width, int height, int subShiftMode = 0, int step = 1, bool useHadamard = false, bool bioApplied = false );
+  void           setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY, int iRefStride, const Pel* mask, int iMaskStride, int stepX, int iMaskStride2, int bitDepth,  ComponentID compID);
 
-  double         getMotionLambda          ( bool bIsTransquantBypass ) { return m_dLambdaMotionSAD[(bIsTransquantBypass && m_costMode==COST_MIXED_LOSSLESS_LOSSY_CODING)?1:0]; }
-  void           selectMotionLambda       ( bool bIsTransquantBypass ) { m_motionLambda = getMotionLambda( bIsTransquantBypass ); }
+  double         getMotionLambda          ( )  { return m_dLambdaMotionSAD; }
+  void           selectMotionLambda       ( )  { m_motionLambda = getMotionLambda( ); }
   void           setPredictor             ( const Mv& rcMv )
   {
     m_mvPredictor = rcMv;
@@ -170,7 +190,7 @@ public:
   void           setCostScale             ( int iCostScale )           { m_iCostScale = iCostScale; }
   Distortion     getCost                  ( uint32_t b )                   { return Distortion( m_motionLambda * b ); }
   // for ibc
-  void           getMotionCost(int add, bool isTransquantBypass) { m_dCost = m_dLambdaMotionSAD[(isTransquantBypass && m_costMode == COST_MIXED_LOSSLESS_LOSSY_CODING) ? 1 : 0] + add; }
+  void           getMotionCost(int add) { m_dCost = m_dLambdaMotionSAD + add; }
 
   void    setPredictors(Mv* pcMv)
   {
@@ -273,10 +293,6 @@ public:
     return length;
   }
 
-#if ENABLE_SPLIT_PARALLELISM
-  void copyState( const RdCost& other );
-#endif
-
   // for motion cost
   static uint32_t    xGetExpGolombNumberOfBits( int iVal )
   {
@@ -295,7 +311,7 @@ public:
   uint32_t           getBitsOfVectorWithPredictor( const int x, const int y, const unsigned imvShift )  { return xGetExpGolombNumberOfBits(((x << m_iCostScale) - m_mvPredictor.getHor())>>imvShift) + xGetExpGolombNumberOfBits(((y << m_iCostScale) - m_mvPredictor.getVer())>>imvShift); }
 #if WCG_EXT
          void    saveUnadjustedLambda       ();
-         void    initLumaLevelToWeightTable ();
+         void    initLumaLevelToWeightTable (int bitDepth);
   inline double  getWPSNRLumaLevelWeight    (int val) { return m_lumaLevelToWeightPLUT[val]; }
   void           initLumaLevelToWeightTableReshape();
   void           updateReshapeLumaLevelToWeightTableChromaMD (std::vector<Pel>& ILUT);
@@ -305,6 +321,9 @@ public:
   void           updateReshapeLumaLevelToWeightTable         (SliceReshapeInfo &sliceReshape, Pel *wtTable, double cwt);
   inline std::vector<double>& getLumaLevelWeightTable        ()                   { return m_lumaLevelToWeightPLUT; }
 #endif
+
+  void           lambdaAdjustColorTrans(bool forward, ComponentID compID, bool applyChromaScale = false, int* resScaleInv = NULL);
+  void           resetStore() { m_resetStore = true; }
 
 private:
 
@@ -341,6 +360,7 @@ private:
   static Distortion xGetSAD48         ( const DistParam& pcDtParam );
 
   static Distortion xGetSAD_full      ( const DistParam& pcDtParam );
+  static Distortion xGetSADwMask      ( const DistParam& pcDtParam );
 
   static Distortion xGetMRSAD         ( const DistParam& pcDtParam );
   static Distortion xGetMRSAD4        ( const DistParam& pcDtParam );
@@ -369,6 +389,10 @@ private:
   static Distortion xGetSSE_SIMD    ( const DistParam& pcDtParam );
   template<int iWidth, X86_VEXT vext>
   static Distortion xGetSSE_NxN_SIMD( const DistParam& pcDtParam );
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+  template<X86_VEXT vext>
+  static Distortion xGetSSE_HBD_SIMD(const DistParam& pcDtParam);
+#endif
 
   template<X86_VEXT vext>
   static Distortion xGetSAD_SIMD    ( const DistParam& pcDtParam );
@@ -376,9 +400,23 @@ private:
   static Distortion xGetSAD_NxN_SIMD( const DistParam& pcDtParam );
   template<X86_VEXT vext>
   static Distortion xGetSAD_IBD_SIMD( const DistParam& pcDtParam );
-
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+  template<X86_VEXT vext>
+  static Distortion xGetHADs_HBD_SIMD(const DistParam& pcDtParam);
+#else
   template<X86_VEXT vext>
   static Distortion xGetHADs_SIMD   ( const DistParam& pcDtParam );
+#endif
+
+  template< X86_VEXT vext >
+  static Distortion xGetSADwMask_SIMD( const DistParam& pcDtParam );
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+  template<X86_VEXT vext>
+  static Distortion xGetSAD_HBD_SIMD(const DistParam& pcDtParam);
+
+  template< X86_VEXT vext >
+  static Distortion xGetSADwMask_HBD_SIMD(const DistParam& pcDtParam);
+#endif
 #endif
 
 public:
@@ -389,6 +427,7 @@ public:
   Distortion   getDistPart( const CPelBuf &org, const CPelBuf &cur, int bitDepth, const ComponentID compID, DFunc eDFunc );
 #endif
 
+  Distortion   getDistPart(const CPelBuf &org, const CPelBuf &cur, const Pel* mask, int bitDepth, const ComponentID compID, DFunc eDFunc);
 };// END CLASS DEFINITION RdCost
 
 //! \}

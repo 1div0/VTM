@@ -3,7 +3,7 @@
 * and contributor rights, including patent rights, and no such rights are
 * granted under this license.
 *
-* Copyright (c) 2010-2019, ITU/ISO/IEC
+* Copyright (c) 2010-2021, ITU/ISO/IEC
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,7 @@
 
 #if ENABLE_TRACING
 
+#define WRITE_SCODE( value, length, name)   xWriteSCodeTr ( value, length, name )
 #define WRITE_CODE( value, length, name)    xWriteCodeTr ( value, length, name )
 #define WRITE_UVLC( value,         name)    xWriteUvlcTr ( value,         name )
 #define WRITE_SVLC( value,         name)    xWriteSvlcTr ( value,         name )
@@ -56,7 +57,7 @@
 
 extern bool g_HLSTraceEnable;
 #else
-
+#define WRITE_SCODE( value, length, name)    xWriteSCode ( value, length )
 #define WRITE_CODE( value, length, name)     xWriteCode ( value, length )
 #define WRITE_UVLC( value,         name)     xWriteUvlc ( value )
 #define WRITE_SVLC( value,         name)     xWriteSvlc ( value )
@@ -76,12 +77,14 @@ protected:
   virtual ~VLCWriter() {}
 
   void  setBitstream          ( OutputBitstream* p )  { m_pcBitIf = p;  }
-
+  OutputBitstream* getBitstream( )                    { return m_pcBitIf; }
+  void  xWriteSCode           ( int  code,  uint32_t length );
   void  xWriteCode            ( uint32_t uiCode, uint32_t uiLength );
   void  xWriteUvlc            ( uint32_t uiCode );
   void  xWriteSvlc            ( int  iCode   );
   void  xWriteFlag            ( uint32_t uiCode );
 #if ENABLE_TRACING
+  void  xWriteSCodeTr         ( int value,  uint32_t  length, const char *pSymbolName);
   void  xWriteCodeTr          ( uint32_t value, uint32_t  length, const char *pSymbolName);
   void  xWriteUvlcTr          ( uint32_t value,               const char *pSymbolName);
   void  xWriteSvlcTr          ( int  value,               const char *pSymbolName);
@@ -99,9 +102,17 @@ public:
   AUDWriter() {};
   virtual ~AUDWriter() {};
 
-  void  codeAUD(OutputBitstream& bs, const int pictureType);
+  void  codeAUD(OutputBitstream& bs, const bool audIrapOrGdrAuFlag, const int pictureType);
 };
 
+class FDWriter : public VLCWriter
+{
+public:
+  FDWriter() {};
+  virtual ~FDWriter() {};
+
+  void  codeFD(OutputBitstream& bs, uint32_t &fdSize);
+};
 
 
 class HLSWriter : public VLCWriter
@@ -111,56 +122,40 @@ public:
   virtual ~HLSWriter() {}
 
 private:
-#if JVET_O0244_DELTA_POC
-  void xCodeRefPicList( const ReferencePictureList* rpl, bool isLongTermPresent, uint32_t ltLsbBitsCount, const bool isForbiddenZeroDeltaPoc );
-#else
-  void xCodeRefPicList(const ReferencePictureList* rpl, bool isLongTermPresent, uint32_t ltLsbBitsCount);
-#endif
+  void xCodeRefPicList( const ReferencePictureList* rpl, bool isLongTermPresent, uint32_t ltLsbBitsCount, const bool isForbiddenZeroDeltaPoc, int rplIdx);
   bool xFindMatchingLTRP        ( Slice* pcSlice, uint32_t *ltrpsIndex, int ltrpPOC, bool usedFlag );
   void xCodePredWeightTable     ( Slice* pcSlice );
-  void xCodeScalingList         ( const ScalingList* scalingList, uint32_t sizeId, uint32_t listId);
+  void xCodePredWeightTable     ( PicHeader *picHeader, const PPS *pps, const SPS *sps );
+  void xCodeScalingList         ( const ScalingList* scalingList, uint32_t scalinListId, bool isPredictor);
 public:
   void  setBitstream            ( OutputBitstream* p )  { m_pcBitIf = p;  }
   uint32_t  getNumberOfWrittenBits  ()                      { return m_pcBitIf->getNumberOfWrittenBits();  }
   void  codeVUI                 ( const VUI *pcVUI, const SPS* pcSPS );
   void  codeSPS                 ( const SPS* pcSPS );
-#if JVET_O1136_TS_BDPCM_SIGNALLING
-  void  codePPS                 ( const PPS* pcPPS, const SPS* pcSPS );
-#else
   void  codePPS                 ( const PPS* pcPPS );
-#endif
   void  codeAPS                 ( APS* pcAPS );
   void  codeAlfAps              ( APS* pcAPS );
   void  codeLmcsAps             ( APS* pcAPS );
-#if JVET_O0299_APS_SCALINGLIST
   void  codeScalingListAps      ( APS* pcAPS );
-#endif
   void  codeVPS                 ( const VPS* pcVPS );
-  void  codeDPS                 ( const DPS* dps );
-  void  codeSliceHeader         ( Slice* pcSlice );
+  void  codeDCI                 ( const DCI* dci );
+  void  codePictureHeader       ( PicHeader* picHeader, bool writeRbspTrailingBits, Slice *slice = 0 );
+  void  codeSliceHeader         ( Slice* pcSlice, PicHeader *picheader = 0 );
+  void  codeOPI                 ( const OPI* opi );
+#if JVET_W2005_RANGE_EXTENSION_PROFILES
+  void  codeConstraintInfo      ( const ConstraintInfo* cinfo, const ProfileTierLevel* ptl );
+#else
   void  codeConstraintInfo      ( const ConstraintInfo* cinfo );
-  void  codeProfileTierLevel    ( const ProfileTierLevel* ptl, int maxNumSubLayersMinus1 );
-#if !JVET_N0353_INDEP_BUFF_TIME_SEI
-  void  codeHrdParameters       ( const HRDParameters *hrd, bool commonInfPresentFlag, uint32_t maxNumSubLayersMinus1 );
-#else
-  void  codeHrdParameters       ( const HRDParameters *hrd, const uint32_t firstSubLayer, const uint32_t maxNumSubLayersMinus1);
 #endif
+  void  codeProfileTierLevel    ( const ProfileTierLevel* ptl, bool profileTierPresentFlag, int maxNumSubLayersMinus1 );
+  void  codeOlsHrdParameters(const GeneralHrdParams * generalHrd, const OlsHrdParams *olsHrd , const uint32_t firstSubLayer, const uint32_t maxNumSubLayersMinus1);
 
+  void codeGeneralHrdparameters(const GeneralHrdParams *hrd);
   void  codeTilesWPPEntryPoint  ( Slice* pSlice );
-  void  codeScalingList         ( const ScalingList &scalingList );
-
-#if JVET_O0090_ALF_CHROMA_FILTER_ALTERNATIVES_CTB
+  void codeScalingList(const ScalingList &scalingList, bool aps_chromaPresentFlag);
   void alfFilter( const AlfParam& alfParam, const bool isChroma, const int altIdx );
-#else
-  void alfFilter( const AlfParam& alfParam, const bool isChroma );
-#endif
-
+  void dpb_parameters(int maxSubLayersMinus1, bool subLayerInfoFlag, const SPS *pcSPS);
 private:
-  void alfGolombEncode( const int coeff, const int k, const bool signed_coeff=true );
-#if !JVET_O0491_HLS_CLEANUP
-  void xWriteTruncBinCode( uint32_t uiSymbol, const int uiMaxSymbol );
-  void truncatedUnaryEqProb( int symbol, int maxSymbol );
-#endif
 };
 
 //! \}

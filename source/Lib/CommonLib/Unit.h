@@ -3,7 +3,7 @@
 * and contributor rights, including patent rights, and no such rights are
 * granted under this license.
 *
-* Copyright (c) 2010-2019, ITU/ISO/IEC
+* Copyright (c) 2010-2021, ITU/ISO/IEC
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -48,12 +48,10 @@
 // ---------------------------------------------------------------------------
 // tools
 // ---------------------------------------------------------------------------
-#if JVET_O0119_BASE_PALETTE_444
 struct PLTBuf {
-  uint32_t       curPLTSize[MAX_NUM_COMPONENT];
+  uint8_t        curPLTSize[MAX_NUM_CHANNEL_TYPE];
   Pel            curPLT[MAX_NUM_COMPONENT][MAXPLTPREDSIZE];
 };
-#endif
 inline Position recalcPosition(const ChromaFormat _cf, const ComponentID srcCId, const ComponentID dstCId, const Position &pos)
 {
   if( toChannelType( srcCId ) == toChannelType( dstCId ) )
@@ -273,7 +271,7 @@ struct UnitAreaRelative : public UnitArea
 
 class SPS;
 class VPS;
-class DPS;
+class DCI;
 class PPS;
 class Slice;
 
@@ -303,46 +301,38 @@ struct CodingUnit : public UnitArea
   int8_t          chromaQpAdj;
   int8_t          qp;
   SplitSeries    splitSeries;
-#if JVET_O0050_LOCAL_DUAL_TREE
   TreeType       treeType;
   ModeType       modeType;
   ModeTypeSeries modeTypeSeries;
-#endif
   bool           skip;
   bool           mmvdSkip;
   bool           affine;
   int            affineType;
-  bool           triangle;
-  bool           transQuantBypass;
+  bool           colorTransform;
+  bool           geoFlag;
   int            bdpcmMode;
-#if !JVET_O0525_REMOVE_PCM
-  bool           ipcm;
-#endif
+  int            bdpcmModeChroma;
   uint8_t          imv;
   bool           rootCbf;
   uint8_t        sbtInfo;
   uint32_t           tileIdx;
   uint8_t         mtsFlag;
   uint32_t        lfnstIdx;
-  uint8_t         GBiIdx;
+  uint8_t         BcwIdx;
   int             refIdxBi[2];
   bool           mipFlag;
 
   // needed for fast imv mode decisions
   int8_t          imvNumCand;
-  Position       shareParentPos;
-  Size           shareParentSize;
   uint8_t          smvdMode;
   uint8_t        ispMode;
-#if JVET_O0119_BASE_PALETTE_444
-  bool           useEscape[MAX_NUM_COMPONENT];
-  bool           useRotation[MAX_NUM_COMPONENT];
-  bool           reuseflag[MAX_NUM_COMPONENT][MAXPLTPREDSIZE];
-  uint32_t       lastPLTSize[MAX_NUM_COMPONENT];
-  uint32_t       reusePLTSize[MAX_NUM_COMPONENT];
-  uint32_t       curPLTSize[MAX_NUM_COMPONENT];
+  bool           useEscape[MAX_NUM_CHANNEL_TYPE];
+  bool           useRotation[MAX_NUM_CHANNEL_TYPE];
+  bool           reuseflag[MAX_NUM_CHANNEL_TYPE][MAXPLTPREDSIZE];
+  uint8_t        lastPLTSize[MAX_NUM_CHANNEL_TYPE];
+  uint8_t        reusePLTSize[MAX_NUM_CHANNEL_TYPE];
+  uint8_t        curPLTSize[MAX_NUM_CHANNEL_TYPE];
   Pel            curPLT[MAX_NUM_COMPONENT][MAXPLTSIZE];
-#endif
 
   CodingUnit() : chType( CH_L ) { }
   CodingUnit(const UnitArea &unit);
@@ -360,25 +350,18 @@ struct CodingUnit : public UnitArea
 
   TransformUnit *firstTU;
   TransformUnit *lastTU;
-#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
 
-  int64_t cacheId;
-  bool    cacheUsed;
-#endif
   const uint8_t     getSbtIdx() const { assert( ( ( sbtInfo >> 0 ) & 0xf ) < NUMBER_SBT_IDX ); return ( sbtInfo >> 0 ) & 0xf; }
   const uint8_t     getSbtPos() const { return ( sbtInfo >> 4 ) & 0x3; }
   void              setSbtIdx( uint8_t idx ) { CHECK( idx >= NUMBER_SBT_IDX, "sbt_idx wrong" ); sbtInfo = ( idx << 0 ) + ( sbtInfo & 0xf0 ); }
   void              setSbtPos( uint8_t pos ) { CHECK( pos >= 4, "sbt_pos wrong" ); sbtInfo = ( pos << 4 ) + ( sbtInfo & 0xcf ); }
   uint8_t           getSbtTuSplit() const;
   const uint8_t     checkAllowedSbt() const;
-#if JVET_O1124_ALLOW_CCLM_COND
   const bool        checkCCLMAllowed() const;
-#endif
-#if JVET_O0050_LOCAL_DUAL_TREE
   const bool        isSepTree() const;
+  const bool        isLocalSepTree() const;
   const bool        isConsInter() const { return modeType == MODE_TYPE_INTER; }
   const bool        isConsIntra() const { return modeType == MODE_TYPE_INTRA; }
-#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -388,6 +371,7 @@ struct CodingUnit : public UnitArea
 struct IntraPredictionData
 {
   uint32_t  intraDir[MAX_NUM_CHANNEL_TYPE];
+  bool      mipTransposedFlag;
   int       multiRefIdx;
 };
 
@@ -396,9 +380,9 @@ struct InterPredictionData
   bool      mergeFlag;
   bool      regularMergeFlag;
   uint8_t     mergeIdx;
-  uint8_t     triangleSplitDir;
-  uint8_t     triangleMergeIdx0;
-  uint8_t     triangleMergeIdx1;
+  uint8_t     geoSplitDir;
+  uint8_t     geoMergeIdx0;
+  uint8_t     geoMergeIdx1;
   bool           mmvdMergeFlag;
   uint32_t       mmvdMergeIdx;
   uint8_t     interDir;
@@ -406,16 +390,27 @@ struct InterPredictionData
   uint8_t     mvpNum  [NUM_REF_PIC_LIST_01];
   Mv        mvd     [NUM_REF_PIC_LIST_01];
   Mv        mv      [NUM_REF_PIC_LIST_01];
+#if GDR_ENABLED 
+  bool      mvSolid[NUM_REF_PIC_LIST_01];
+  bool      mvValid[NUM_REF_PIC_LIST_01];
+  bool      mvpSolid[NUM_REF_PIC_LIST_01];
+  MvpType   mvpType[NUM_REF_PIC_LIST_01];
+  Position  mvpPos[NUM_REF_PIC_LIST_01];
+#endif
   int16_t     refIdx  [NUM_REF_PIC_LIST_01];
   MergeType mergeType;
   bool      mvRefine;
   Mv        mvdL0SubPu[MAX_NUM_SUBCU_DMVR];
   Mv        mvdAffi [NUM_REF_PIC_LIST_01][3];
   Mv        mvAffi[NUM_REF_PIC_LIST_01][3];
-  bool      mhIntraFlag;
+#if GDR_ENABLED
+  bool      mvAffiSolid[NUM_REF_PIC_LIST_01][3];
+  bool      mvAffiValid[NUM_REF_PIC_LIST_01][3];
+  MvpType   mvAffiType[NUM_REF_PIC_LIST_01][3];
+  Position  mvAffiPos[NUM_REF_PIC_LIST_01][3];
+#endif
+  bool      ciipFlag;
 
-  Position  shareParentPos;
-  Size      shareParentSize;
   Mv        bv;                             // block vector for IBC
   Mv        bvd;                            // block vector difference for IBC
   uint8_t   mmvdEncOptMode;                  // 0: no action 1: skip chroma MC for MMVD candidate pre-selection 2: skip chroma MC and BIO for MMVD candidate pre-selection
@@ -440,8 +435,6 @@ struct PredictionUnit : public UnitArea, public IntraPredictionData, public Inte
   PredictionUnit& operator=(const MotionInfo& mi);
 
   unsigned        idx;
-  Position shareParentPos;
-  Size     shareParentSize;
 
   PredictionUnit *next;
 
@@ -450,12 +443,6 @@ struct PredictionUnit : public UnitArea, public IntraPredictionData, public Inte
   const MotionInfo& getMotionInfo( const Position& pos ) const;
   MotionBuf         getMotionBuf();
   CMotionBuf        getMotionBuf() const;
-
-#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
-
-  int64_t cacheId;
-  bool    cacheUsed;
-#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -470,12 +457,10 @@ struct TransformUnit : public UnitArea
   int              m_chromaResScaleInv;
 
   uint8_t        depth;
-  uint8_t        mtsIdx;
+  uint8_t        mtsIdx     [ MAX_NUM_TBLOCKS ];
   bool           noResidual;
   uint8_t        jointCbCr;
   uint8_t        cbf        [ MAX_NUM_TBLOCKS ];
-  RDPCMMode    rdpcm        [ MAX_NUM_TBLOCKS ];
-  int8_t        compAlpha   [ MAX_NUM_TBLOCKS ];
 
   TransformUnit() : chType( CH_L ) { }
   TransformUnit(const UnitArea& unit);
@@ -486,19 +471,12 @@ struct TransformUnit : public UnitArea
   unsigned       idx;
   TransformUnit *next;
   TransformUnit *prev;
-
-#if JVET_O0119_BASE_PALETTE_444
-  void init(TCoeff **coeffs, Pel **pcmbuf, Pel **runLength, bool **runType);
-#else
-  void init(TCoeff **coeffs, Pel **pcmbuf);
-#endif
+  void init(TCoeff **coeffs, Pel **pcmbuf, bool **runType);
 
   TransformUnit& operator=(const TransformUnit& other);
   void copyComponentFrom  (const TransformUnit& other, const ComponentID compID);
   void checkTuNoResidual( unsigned idx );
-#if JVET_O0052_TU_LEVEL_CTX_CODED_BIN_CONSTRAINT
   int  getTbAreaAfterCoefZeroOut(ComponentID compID) const;
-#endif
 
          CoeffBuf getCoeffs(const ComponentID id);
   const CCoeffBuf getCoeffs(const ComponentID id) const;
@@ -506,32 +484,19 @@ struct TransformUnit : public UnitArea
   const CPelBuf   getPcmbuf(const ComponentID id) const;
         int       getChromaAdj( )                 const;
         void      setChromaAdj(int i);
-#if JVET_O0119_BASE_PALETTE_444
          PelBuf   getcurPLTIdx(const ComponentID id);
   const CPelBuf   getcurPLTIdx(const ComponentID id) const;
-         PelBuf   getrunLength(const ComponentID id);
-  const CPelBuf   getrunLength(const ComponentID id) const;
          PLTtypeBuf   getrunType(const ComponentID id);
   const CPLTtypeBuf   getrunType(const ComponentID id) const;
          PLTescapeBuf getescapeValue(const ComponentID id);
   const CPLTescapeBuf getescapeValue(const ComponentID id) const;
         Pel*      getPLTIndex(const ComponentID id);
-        Pel*      getRunLens(const ComponentID id);
         bool*     getRunTypes(const ComponentID id);
-#endif
 
-#if ENABLE_SPLIT_PARALLELISM || ENABLE_WPP_PARALLELISM
-  int64_t cacheId;
-  bool    cacheUsed;
-
-#endif
 private:
   TCoeff *m_coeffs[ MAX_NUM_TBLOCKS ];
   Pel    *m_pcmbuf[ MAX_NUM_TBLOCKS ];
-#if JVET_O0119_BASE_PALETTE_444
-  bool   *m_runType[MAX_NUM_TBLOCKS];
-  Pel    *m_runLength[MAX_NUM_TBLOCKS];
-#endif
+  bool   *m_runType[ MAX_NUM_TBLOCKS - 1 ];
 };
 
 // ---------------------------------------------------------------------------

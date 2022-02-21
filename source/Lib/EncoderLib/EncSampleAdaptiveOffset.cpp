@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -80,9 +80,7 @@ EncSampleAdaptiveOffset::EncSampleAdaptiveOffset()
 {
   m_CABACEstimator = NULL;
 
-#if JVET_O1164_PS
   ::memset( m_saoDisabledRate, 0, sizeof( m_saoDisabledRate ) );
-#endif
 }
 
 EncSampleAdaptiveOffset::~EncSampleAdaptiveOffset()
@@ -117,9 +115,6 @@ void EncSampleAdaptiveOffset::createEncData(bool isPreDBFSamplesUsed, uint32_t n
 
   }
 
-#if !JVET_O1164_PS
-  ::memset(m_saoDisabledRate, 0, sizeof(m_saoDisabledRate));
-#endif
 
   for(int typeIdc=0; typeIdc < NUM_SAO_NEW_TYPES; typeIdc++)
   {
@@ -216,9 +211,9 @@ void EncSampleAdaptiveOffset::SAOProcess( CodingStructure& cs, bool* sliceEnable
 #if ENABLE_QPA
                                           const double lambdaChromaWeight,
 #endif
-                                          const bool bTestSAODisableAtPictureLevel, const double saoEncodingRate, const double saoEncodingRateChroma, const bool isPreDBFSamplesUsed, bool isGreedyMergeEncoding )
+                                          const bool bTestSAODisableAtPictureLevel, const double saoEncodingRate, const double saoEncodingRateChroma, const bool isPreDBFSamplesUsed, bool isGreedyMergeEncoding, bool usingTrueOrg )
 {
-  PelUnitBuf org = cs.getOrgBuf();
+  PelUnitBuf org = usingTrueOrg ? cs.getTrueOrgBuf() : cs.getOrgBuf();
   PelUnitBuf res = cs.getRecoBuf();
   PelUnitBuf src = m_tempBuf;
   memcpy(m_lambda, lambdas, sizeof(m_lambda));
@@ -251,17 +246,11 @@ void EncSampleAdaptiveOffset::SAOProcess( CodingStructure& cs, bool* sliceEnable
   DTRACE    ( g_trace_ctx, D_CRC, "SAO" );
   DTRACE_CRC( g_trace_ctx, D_CRC, cs, cs.getRecoBuf() );
 
-#if !JVET_O0525_REMOVE_PCM
-  xPCMLFDisableProcess(cs);
-#else
-  xLosslessDisableProcess(cs);
-#endif
 }
 
-
-void EncSampleAdaptiveOffset::getPreDBFStatistics(CodingStructure& cs)
+void EncSampleAdaptiveOffset::getPreDBFStatistics( CodingStructure& cs, bool usingTrueOrg )
 {
-  PelUnitBuf org = cs.getOrgBuf();
+  PelUnitBuf org = usingTrueOrg ? cs.getTrueOrgBuf() : cs.getOrgBuf();
   PelUnitBuf rec = cs.getRecoBuf();
   getStatistics(m_preDBFstatData, org, rec, cs, true);
 }
@@ -318,7 +307,7 @@ void EncSampleAdaptiveOffset::getStatistics(std::vector<SAOStatData**>& blkStats
       int verVirBndryPos[] = { -1,-1,-1 };
       int horVirBndryPosComp[] = { -1,-1,-1 };
       int verVirBndryPosComp[] = { -1,-1,-1 };
-      bool isCtuCrossedByVirtualBoundaries = isCrossedByVirtualBoundaries(xPos, yPos, width, height, numHorVirBndry, numVerVirBndry, horVirBndryPos, verVirBndryPos, cs.slice->getPPS());
+      bool isCtuCrossedByVirtualBoundaries = isCrossedByVirtualBoundaries(xPos, yPos, width, height, numHorVirBndry, numVerVirBndry, horVirBndryPos, verVirBndryPos, cs.picHeader );
 
       for(int compIdx = 0; compIdx < numberOfComponents; compIdx++)
       {
@@ -835,7 +824,7 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
 
   int     mergeCtuAddr = 1; //Ctu to be merged
   int     groupSize = 1;
-  double  Cost[2] = { 0, 0 };
+  double  cost[2]      = { 0, 0 };
   TempCtx ctxBeforeMerge(m_CtxCache);
   TempCtx ctxAfterMerge(m_CtxCache);
 
@@ -843,7 +832,7 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
 
   int ctuRsAddr = 0;
 #if ENABLE_QPA
-  CHECK ((chromaWeight > 0.0) && (cs.slice->getSliceCurStartCtuTsAddr() != 0), "incompatible start CTU address, must be 0");
+  CHECK ((chromaWeight > 0.0) && (cs.slice->getFirstCtuRsAddrInSlice() != 0), "incompatible start CTU address, must be 0");
 #endif
 
   for( uint32_t yPos = 0; yPos < pcv.lumaHeight; yPos += pcv.maxCUHeight )
@@ -930,13 +919,13 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
       {
         if (ctuRsAddr == (mergeCtuAddr - 1))
         {
-          Cost[0] = minCost;  //previous
+          cost[0]   = minCost;   // previous
           groupSize = 1;
           getMergeList(cs, ctuRsAddr, reconParams, startingMergeList);
         }
         else if (ctuRsAddr == mergeCtuAddr)
         {
-          Cost[1] = minCost;
+          cost[1]  = minCost;
           minCost2 = MAX_DOUBLE;
           for (int tmp = groupSize; tmp >= 0; tmp--)
           {
@@ -990,13 +979,13 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
             ctxAfterMerge = SAOCtx(m_CABACEstimator->getCtx());
           }
 
-          totalCost += Cost[0];
-          totalCost += Cost[1];
+          totalCost += cost[0];
+          totalCost += cost[1];
 
-          if ((Cost[0] + Cost[1]) > minCost2) //merge current CTU
+          if ((cost[0] + cost[1]) > minCost2)   // merge current CTU
           {
             //original merge all
-            totalCost = totalCost - Cost[0] - Cost[1] + minCost2;
+            totalCost                          = totalCost - cost[0] - cost[1] + minCost2;
             codedParams[ctuRsAddr - groupSize] = groupParam;
             for (int compIdx = 0; compIdx < MAX_NUM_COMPONENT; compIdx++)
             {
@@ -1017,7 +1006,7 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
             }
             else //next CTU can be merged with current group
             {
-              Cost[0] = minCost2;
+              cost[0] = minCost2;
               groupSize += 1;
             }
             m_CABACEstimator->getCtx() = SAOCtx(ctxAfterMerge);
@@ -1026,7 +1015,7 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
           {
             mergeCtuAddr += 1;
             // Current block will be the starting block for successive operations
-            Cost[0] = Cost[1];
+            cost[0] = cost[1];
             getMergeList(cs, ctuRsAddr, reconParams, startingMergeList);
             groupSize = 1;
             m_CABACEstimator->getCtx() = SAOCtx(ctxStart);
@@ -1036,7 +1025,7 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
             {
               mergeCtuAddr += 1;
             }
-          } //else, if(Cost[0] + Cost[1] > minCost2)
+          }   // else, if(cost[0] + cost[1] > minCost2)
         }//else if (ctuRsAddr == mergeCtuAddr)
       }
       else
@@ -1093,6 +1082,8 @@ void EncSampleAdaptiveOffset::decideBlkParams(CodingStructure& cs, bool* sliceEn
       sliceEnabled[componentIndex] = false;
     }
     m_CABACEstimator->getCtx() = SAOCtx(ctxPicStart);
+
+    resYuv.copyFrom(srcYuv);
   }
 
   EncSampleAdaptiveOffset::disabledRate( cs, reconParams, saoEncodingRate, saoEncodingRateChroma );
@@ -1103,7 +1094,7 @@ void EncSampleAdaptiveOffset::disabledRate( CodingStructure& cs, SAOBlkParam* re
   if (saoEncodingRate > 0.0)
   {
     const PreCalcValues& pcv = *cs.pcv;
-    const uint32_t numberOfComponents = m_numberOfComponents;
+    const uint32_t numberOfComponents = getNumberValidComponents( cs.picture->chromaFormat );
     int picTempLayer = cs.slice->getDepth();
     int numCtusForSAOOff[MAX_NUM_COMPONENT];
 
@@ -1550,7 +1541,8 @@ void EncSampleAdaptiveOffset::getBlkStats(const ComponentID compIdx, const int c
 
 void EncSampleAdaptiveOffset::deriveLoopFilterBoundaryAvailibility(CodingStructure& cs, const Position &pos, bool& isLeftAvail, bool& isAboveAvail, bool& isAboveLeftAvail) const
 {
-  bool isLoopFiltAcrossTilePPS = cs.pps->getLoopFilterAcrossBricksEnabledFlag();
+  bool isLoopFiltAcrossSlicePPS = cs.pps->getLoopFilterAcrossSlicesEnabledFlag();
+  bool isLoopFiltAcrossTilePPS = cs.pps->getLoopFilterAcrossTilesEnabledFlag();
 
   const int width = cs.pcv->maxCUWidth;
   const int height = cs.pcv->maxCUHeight;
@@ -1559,10 +1551,17 @@ void EncSampleAdaptiveOffset::deriveLoopFilterBoundaryAvailibility(CodingStructu
   const CodingUnit* cuAbove = cs.getCU(pos.offset(0, -height), CH_L);
   const CodingUnit* cuAboveLeft = cs.getCU(pos.offset(-width, -height), CH_L);
 
+  if (!isLoopFiltAcrossSlicePPS)
   {
-    isLeftAvail      = (cuLeft != NULL)      ? ( !CU::isSameSlice(*cuCurr, *cuLeft)      ? cuCurr->slice->getLFCrossSliceBoundaryFlag() : true ) : false;
-    isAboveAvail     = (cuAbove != NULL)     ? ( !CU::isSameSlice(*cuCurr, *cuAbove)     ? cuCurr->slice->getLFCrossSliceBoundaryFlag() : true ) : false;
-    isAboveLeftAvail = (cuAboveLeft != NULL) ? ( !CU::isSameSlice(*cuCurr, *cuAboveLeft) ? cuCurr->slice->getLFCrossSliceBoundaryFlag() : true ) : false;
+    isLeftAvail      = (cuLeft == NULL)      ? false : CU::isSameTile(*cuCurr, *cuLeft);
+    isAboveAvail     = (cuAbove == NULL)     ? false : CU::isSameTile(*cuCurr, *cuAbove);
+    isAboveLeftAvail = (cuAboveLeft == NULL) ? false : CU::isSameTile(*cuCurr, *cuAboveLeft);
+  }
+  else
+  {
+    isLeftAvail      = (cuLeft != NULL);
+    isAboveAvail     = (cuAbove != NULL);
+    isAboveLeftAvail = (cuAboveLeft != NULL);
   }
 
   if (!isLoopFiltAcrossTilePPS)
@@ -1570,6 +1569,14 @@ void EncSampleAdaptiveOffset::deriveLoopFilterBoundaryAvailibility(CodingStructu
     isLeftAvail      = (!isLeftAvail)      ? false : CU::isSameTile(*cuCurr, *cuLeft);
     isAboveAvail     = (!isAboveAvail)     ? false : CU::isSameTile(*cuCurr, *cuAbove);
     isAboveLeftAvail = (!isAboveLeftAvail) ? false : CU::isSameTile(*cuCurr, *cuAboveLeft);
+  }
+
+  const SubPic& curSubPic = cs.pps->getSubPicFromCU(*cuCurr);
+  if (!curSubPic.getloopFilterAcrossEnabledFlag())
+  {
+    isLeftAvail      = (!isLeftAvail)      ? false : CU::isSameSubPic(*cuCurr, *cuLeft);
+    isAboveAvail     = (!isAboveAvail)     ? false : CU::isSameSubPic(*cuCurr, *cuAbove);
+    isAboveLeftAvail = (!isAboveLeftAvail) ? false : CU::isSameSubPic(*cuCurr, *cuAboveLeft);
   }
 }
 

@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,16 +61,12 @@ enum MvPrecision
 class Mv
 {
 private:
-#if JVET_O0057_ALTHPELIF
   static const MvPrecision m_amvrPrecision[4];
-#else
-  static const MvPrecision m_amvrPrecision[3];
-#endif
   static const MvPrecision m_amvrPrecAffine[3];
   static const MvPrecision m_amvrPrecIbc[3];
 
   static const int mvClipPeriod = (1 << MV_BITS);
-  static const int halMvClipPeriod = (1 << (MV_BITS - 1));
+  static const int halfMvClipPeriod = (1 << (MV_BITS - 1));
 
 public:
   int   hor;     ///< horizontal component of motion vector
@@ -268,9 +264,9 @@ public:
   void mvCliptoStorageBitDepth()  // periodic clipping
   {
     hor = (hor + mvClipPeriod) & (mvClipPeriod - 1);
-    hor = (hor >= halMvClipPeriod) ? (hor - mvClipPeriod) : hor;
+    hor = (hor >= halfMvClipPeriod) ? (hor - mvClipPeriod) : hor;
     ver = (ver + mvClipPeriod) & (mvClipPeriod - 1);
-    ver = (ver >= halMvClipPeriod) ? (ver - mvClipPeriod) : ver;
+    ver = (ver >= halfMvClipPeriod) ? (ver - mvClipPeriod) : ver;
   }
 };// END CLASS DEFINITION MV
 
@@ -285,20 +281,14 @@ namespace std
     }
   };
 };
-void clipMv ( Mv& rcMv, const struct Position& pos,
-              const struct Size& size,
-              const class SPS& sps
-#if JVET_O1164_PS
-            , const class PPS& pps
-#endif
-);
+extern void(*clipMv) ( Mv& rcMv, const struct Position& pos, const struct Size& size, const class SPS& sps, const class PPS& pps );
+void clipMvInPic ( Mv& rcMv, const struct Position& pos, const struct Size& size, const class SPS& sps, const class PPS& pps );
+void clipMvInSubpic ( Mv& rcMv, const struct Position& pos, const struct Size& size, const class SPS& sps, const class PPS& pps );
 
 bool wrapClipMv( Mv& rcMv, const Position& pos,
                  const struct Size& size,
                  const SPS *sps
-#if JVET_O1164_PS
                , const PPS* pps
-#endif
 );
 
 void roundAffineMv( int& mvx, int& mvy, int nShift );

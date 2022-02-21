@@ -3,7 +3,7 @@
 * and contributor rights, including patent rights, and no such rights are
 * granted under this license.
 *
-* Copyright (c) 2010-2019, ITU/ISO/IEC
+* Copyright (c) 2010-2021, ITU/ISO/IEC
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -42,10 +42,12 @@
 #include "CommonLib/BitStream.h"
 #include "CommonLib/Slice.h"
 #include "CommonLib/SampleAdaptiveOffset.h"
+#include "CommonLib/ParameterSetManager.h"
 #include "CABACReader.h"
 
 #if ENABLE_TRACING
 
+#define READ_SCODE(length, code, name)    xReadSCode  ( length, code, name )
 #define READ_CODE(length, code, name)     xReadCodeTr ( length, code, name )
 #define READ_UVLC(        code, name)     xReadUvlcTr (         code, name )
 #define READ_SVLC(        code, name)     xReadSvlcTr (         code, name )
@@ -55,6 +57,7 @@
 
 #if RExt__DECODER_DEBUG_BIT_STATISTICS
 
+#define READ_SCODE(length, code, name)    xReadSCode( length, code, name )
 #define READ_CODE(length, code, name)     xReadCode ( length, code, name )
 #define READ_UVLC(        code, name)     xReadUvlc (         code, name )
 #define READ_SVLC(        code, name)     xReadSvlc (         code, name )
@@ -62,6 +65,7 @@
 
 #else
 
+#define READ_SCODE(length, code, name)    xReadSCode ( length, code )
 #define READ_CODE(length, code, name)     xReadCode ( length, code )
 #define READ_UVLC(        code, name)     xReadUvlc (         code )
 #define READ_SVLC(        code, name)     xReadSvlc (         code )
@@ -103,6 +107,12 @@ protected:
   void  xReadSvlcTr  (                int& rValue, const char *pSymbolName );
   void  xReadFlagTr  (               uint32_t& rValue, const char *pSymbolName );
 #endif
+#if RExt__DECODER_DEBUG_BIT_STATISTICS || ENABLE_TRACING
+  void  xReadSCode   ( uint32_t  length, int& val, const char *pSymbolName );
+#else
+  void  xReadSCode   ( uint32_t  length, int& val );
+#endif
+
 public:
   void  setBitstream ( InputBitstream* p )   { m_pcBitstream = p; }
   InputBitstream* getBitstream() { return m_pcBitstream; }
@@ -119,7 +129,7 @@ class AUDReader: public VLCReader
 public:
   AUDReader() {};
   virtual ~AUDReader() {};
-  void parseAccessUnitDelimiter(InputBitstream* bs, uint32_t &picType);
+  void parseAccessUnitDelimiter(InputBitstream* bs, uint32_t &audIrapOrGdrAuFlag, uint32_t &picType);
 };
 
 
@@ -136,54 +146,61 @@ public:
 
 class HLSyntaxReader : public VLCReader
 {
+#if GDR_ENABLED
+  int m_lastGdrPoc;
+  int m_lastGdrRecoveryPocCnt;
+#endif
+
 public:
   HLSyntaxReader();
   virtual ~HLSyntaxReader();
 
 protected:
   void  copyRefPicList(SPS* pcSPS, ReferencePictureList* source_rpl, ReferencePictureList* dest_rpl);
-  void  parseRefPicList(SPS* pcSPS, ReferencePictureList* rpl);
+  void  parseRefPicList(SPS* pcSPS, ReferencePictureList* rpl, int rplIdx);
 
 public:
+#if GDR_ENABLED
+  void setLastGdrPoc(int poc) { m_lastGdrPoc = poc;  }
+  int  getLastGdrPoc()        { return m_lastGdrPoc; }
+  void setLastGdrRecoveryPocCnt(int recoveryPocCnt) { m_lastGdrRecoveryPocCnt = recoveryPocCnt; }
+  int  getLastGdrRecoveryPocCnt()                     { return m_lastGdrRecoveryPocCnt; }
+#endif
   void  setBitstream        ( InputBitstream* p )   { m_pcBitstream = p; }
+  void  parseOPI            ( OPI* opi );
   void  parseVPS            ( VPS* pcVPS );
-  void  parseDPS            ( DPS* dps );
+  void  parseDCI            ( DCI* dci );
   void  parseSPS            ( SPS* pcSPS );
-  void  parsePPS            ( PPS* pcPPS, ParameterSetManager *parameterSetManager );
+  void  parsePPS            ( PPS* pcPPS );
   void  parseAPS            ( APS* pcAPS );
   void  parseAlfAps         ( APS* pcAPS );
   void  parseLmcsAps        ( APS* pcAPS );
-#if JVET_O0299_APS_SCALINGLIST
   void  parseScalingListAps ( APS* pcAPS );
-#endif
   void  parseVUI            ( VUI* pcVUI, SPS* pcSPS );
-  void  parseConstraintInfo   (ConstraintInfo *cinfo);
-  void  parseProfileTierLevel ( ProfileTierLevel *ptl, int maxNumSubLayersMinus1);
-#if !JVET_N0353_INDEP_BUFF_TIME_SEI
-  void  parseHrdParameters  ( HRDParameters *hrd, bool cprms_present_flag, uint32_t tempLevelHigh );
+#if JVET_W2005_RANGE_EXTENSION_PROFILES
+  void  parseConstraintInfo (ConstraintInfo *cinfo, const ProfileTierLevel* ptl );
 #else
-  void  parseHrdParameters  ( HRDParameters *hrd, uint32_t firstSubLayer, uint32_t tempLevelHigh );
+  void  parseConstraintInfo   (ConstraintInfo *cinfo);
 #endif
-  void  parseSliceHeader    ( Slice* pcSlice, ParameterSetManager *parameterSetManager, const int prevTid0POC );
+  void  parseProfileTierLevel(ProfileTierLevel *ptl, bool profileTierPresentFlag, int maxNumSubLayersMinus1);
+  void  parseOlsHrdParameters(GeneralHrdParams* generalHrd, OlsHrdParams *olsHrd, uint32_t firstSubLayer, uint32_t tempLevelHigh);
+  void parseGeneralHrdParameters(GeneralHrdParams *generalHrd);
+  void  parsePictureHeader  ( PicHeader* picHeader, ParameterSetManager *parameterSetManager, bool readRbspTrailingBits );
+  void  checkAlfNaluTidAndPicTid(Slice* pcSlice, PicHeader* picHeader, ParameterSetManager *parameterSetManager);
+  void  parseSliceHeader    ( Slice* pcSlice, PicHeader* picHeader, ParameterSetManager *parameterSetManager, const int prevTid0POC, const int prevPicPOC );
+  void  getSlicePoc ( Slice* pcSlice, PicHeader* picHeader, ParameterSetManager *parameterSetManager, const int prevTid0POC );
   void  parseTerminatingBit ( uint32_t& ruiBit );
   void  parseRemainingBytes ( bool noTrailingBytesExpected );
 
   void  parsePredWeightTable( Slice* pcSlice, const SPS *sps );
-  void  parseScalingList    ( ScalingList* scalingList );
-  void  decodeScalingList   ( ScalingList *scalingList, uint32_t sizeId, uint32_t listId);
+  void parsePredWeightTable ( PicHeader *picHeader, const PPS *pps, const SPS *sps );
+  void parseScalingList     ( ScalingList *scalingList, bool aps_chromaPresentFlag );
+  void  decodeScalingList   ( ScalingList *scalingList, uint32_t scalingListId, bool isPredictor);
   void parseReshaper        ( SliceReshapeInfo& sliceReshaperInfo, const SPS* pcSPS, const bool isIntra );
-#if JVET_O0090_ALF_CHROMA_FILTER_ALTERNATIVES_CTB
   void alfFilter( AlfParam& alfParam, const bool isChroma, const int altIdx );
-#else
-  void alfFilter( AlfParam& alfParam, const bool isChroma );
-#endif
-
+  void ccAlfFilter( Slice *pcSlice );
+  void dpb_parameters(int maxSubLayersMinus1, bool subLayerInfoFlag, SPS *pcSPS);
 private:
-#if !JVET_O0491_HLS_CLEANUP
-  int truncatedUnaryEqProb( const int maxSymbol );
-  void xReadTruncBinCode( uint32_t& ruiSymbol, const int uiMaxSymbol );
-#endif
-  int  alfGolombDecode( const int k, const bool signed_val=true );
 
 protected:
   bool  xMoreRbspData();

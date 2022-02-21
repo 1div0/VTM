@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,7 +59,7 @@ class InputNALUnit : public NALUnit
 
   public:
     InputNALUnit(const InputNALUnit &src) : NALUnit(src), m_Bitstream(src.m_Bitstream) {};
-    InputNALUnit() : m_Bitstream() {};
+    InputNALUnit() : NALUnit(NAL_UNIT_INVALID), m_Bitstream() {};
     virtual ~InputNALUnit() { }
     const InputBitstream &getBitstream() const { return m_Bitstream; }
           InputBitstream &getBitstream()       { return m_Bitstream; }
@@ -67,7 +67,7 @@ class InputNALUnit : public NALUnit
 
 void read(InputNALUnit& nalu);
 void readNalUnitHeader(InputNALUnit& nalu);
-
+bool checkPictureHeaderInSliceHeaderFlag(InputNALUnit & nalu);
 //! \}
 
 #endif

@@ -197,8 +197,6 @@ protected:
   RPLEntry  m_RPLList1[MAX_GOP];                               ///< the RPL entries from the config file
   bool      m_idrRefParamList;                                ///< indicates if reference picture list syntax elements are present in slice headers of IDR pictures
   GOPEntry  m_GOPList[MAX_GOP];                               ///< the coding structure entries from the config file
-  BrickSplit    m_brickSplits[MAX_TILES];
-  BrickSplitMap m_brickSplitMap;
   int       m_numReorderPics[MAX_TLAYER];                     ///< total number of reorder pictures
   int       m_maxDecPicBuffering[MAX_TLAYER];                 ///< total number of pictures in the decoded picture buffer
   bool      m_crossComponentPredictionEnabledFlag;            ///< flag enabling the use of cross-component prediction
@@ -212,7 +210,6 @@ protected:
   uint32_t      m_log2MaxTransformSkipBlockSize;                  ///< transform-skip maximum size (minimum of 2)
   bool      m_transformSkipRotationEnabledFlag;               ///< control flag for transform-skip/transquant-bypass residual rotation
   bool      m_transformSkipContextEnabledFlag;                ///< control flag for transform-skip/transquant-bypass single significance map context
-  bool      m_rdpcmEnabledFlag[NUMBER_OF_RDPCM_SIGNALLING_MODES];///< control flags for residual DPCM
   bool      m_persistentRiceAdaptationEnabledFlag;            ///< control flag for Golomb-Rice parameter adaptation over each slice
   bool      m_cabacBypassAlignmentEnabledFlag;
   bool      m_ISP;
@@ -448,7 +445,6 @@ protected:
   bool      m_useFastDecisionForMerge;                        ///< flag for using Fast Decision Merge RD-Cost
   bool      m_bUseCbfFastMode;                                ///< flag for using Cbf Fast PU Mode Decision
   bool      m_useEarlySkipDetection;                          ///< flag for using Early SKIP Detection
-  SliceConstraint m_sliceMode;
   int             m_sliceArgument;                            ///< argument according to selected slice mode
 
   bool      m_bLFCrossSliceBoundaryFlag;  ///< 1: filter across slice boundaries 0: do not filter across slice boundaries

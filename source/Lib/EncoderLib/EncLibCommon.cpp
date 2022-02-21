@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,41 +31,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/** \file     Prediction.h
-    \brief    prediction class (header)
+/** \file     EncLibCommon.cpp
+    \brief    Common encoder library class
 */
 
-#ifndef __CROSSCOMPPREDICTION__
-#define __CROSSCOMPPREDICTION__
+#include "CommonDef.h"
+#include "EncLibCommon.h"
 
-
-// Include files
-#include "Unit.h"
-#include "Buffer.h"
-
-//! \ingroup CommonLib
-//! \{
-
-// ====================================================================================================================
-// Class definition
-// ====================================================================================================================
-
-class CrossComponentPrediction
+EncLibCommon::EncLibCommon()
+  : m_apsIdStart( ALF_CTB_MAX_NUM_APS )
+  , m_spsMap( MAX_NUM_SPS )
+  , m_ppsMap( MAX_NUM_PPS )
+  , m_apsMap( MAX_NUM_APS * MAX_NUM_APS_TYPE )
 {
-protected:
+  std::memset( m_layerDecPicBuffering, 0, sizeof( m_layerDecPicBuffering ) );
+}
 
-  int8_t xCalcCrossComponentPredictionAlpha( TransformUnit &tu, const ComponentID &compID, bool useRecoResidual );
-
-public:
-
-  static void crossComponentPrediction(       TransformUnit &tu,
-                                        const ComponentID   &compID,
-                                        const CPelBuf       &piResiL,
-                                        const CPelBuf       &piResiC,
-                                              PelBuf        &piResiT,
-                                        const bool          &reverse );
-};
-
-//! \}
-
-#endif // __PREDICTION__
+EncLibCommon::~EncLibCommon()
+{
+}

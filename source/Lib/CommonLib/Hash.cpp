@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -124,6 +124,7 @@ TComHash::~TComHash()
     m_lookupTable = NULL;
   }
 }
+
 void TComHash::create(int picWidth, int picHeight)
 {
   if (m_lookupTable)
@@ -377,9 +378,11 @@ void TComHash::getPixelsIn1DCharArrayByBlock2x2(const PelUnitBuf &curPicBuf, uns
 
   if (bitDepths.recon[CHANNEL_TYPE_LUMA] == 8 && bitDepths.recon[CHANNEL_TYPE_CHROMA] == 8)
   {
-    Pel* curPel[3];
-    int stride[3];
-    for (int id = 0; id < 3; id++)
+    Pel* curPel[MAX_NUM_COMPONENT]={nullptr};
+    int stride[MAX_NUM_COMPONENT]={0};
+    const int maxComponent=includeAllComponent?MAX_NUM_COMPONENT:1;
+
+    for (int id = 0; id < maxComponent; id++)
     {
       ComponentID compID = ComponentID(id);
       stride[id] = (curPicBuf).get(compID).stride;
@@ -410,10 +413,12 @@ void TComHash::getPixelsIn1DCharArrayByBlock2x2(const PelUnitBuf &curPicBuf, uns
   else
   {
     int shift = bitDepths.recon[CHANNEL_TYPE_LUMA] - 8;
-    int shiftc = bitDepths.recon[CHANNEL_TYPE_CHROMA] - 8;
-    Pel* curPel[3];
-    int stride[3];
-    for (int id = 0; id < 3; id++)
+    int shiftc = includeAllComponent ? (bitDepths.recon[CHANNEL_TYPE_CHROMA] - 8) : 0;
+    Pel* curPel[MAX_NUM_COMPONENT]={nullptr};
+    int stride[MAX_NUM_COMPONENT]={0};
+    const int maxComponent=includeAllComponent?MAX_NUM_COMPONENT:1;
+
+    for (int id = 0; id < maxComponent; id++)
     {
       ComponentID compID = ComponentID(id);
       stride[id] = (curPicBuf).get(compID).stride;
@@ -498,6 +503,7 @@ bool TComHash::isBlock2x2ColSameValue(unsigned char* p, bool includeAllComponent
 
   return true;
 }
+
 bool TComHash::isHorizontalPerfectLuma(const Pel* srcPel, int stride, int width, int height)
 {
   for (int i = 0; i < height; i++)
@@ -528,6 +534,7 @@ bool TComHash::isVerticalPerfectLuma(const Pel* srcPel, int stride, int width, i
   }
   return true;
 }
+
 bool TComHash::getBlockHashValue(const PelUnitBuf &curPicBuf, int width, int height, int xStart, int yStart, const BitDepths bitDepths, uint32_t& hashValue1, uint32_t& hashValue2)
 {
   int addValue = m_blockSizeToIndex[width][height];

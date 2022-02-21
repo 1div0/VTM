@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,7 +65,10 @@ double RdCost::calcRdCost( uint64_t fracBits, Distortion distortion, bool useUna
 double RdCost::calcRdCost( uint64_t fracBits, Distortion distortion )
 #endif
 {
-
+  if (m_costMode == COST_LOSSLESS_CODING && 0 != distortion && m_isLosslessRDCost)
+  {
+    return MAX_DOUBLE;
+  }
 #if WCG_EXT
   return ( useUnadjustedLambda ? m_DistScaleUnadjusted : m_DistScale ) * double( distortion ) + double( fracBits );
 #else
@@ -77,16 +80,53 @@ void RdCost::setLambda( double dLambda, const BitDepths &bitDepths )
 {
   m_dLambda             = dLambda;
   m_DistScale           = double(1<<SCALE_BITS) / m_dLambda;
-  m_dLambdaMotionSAD[0] = sqrt(m_dLambda);
-  dLambda = 0.57
-            * pow(2.0, ((LOSSLESS_AND_MIXED_LOSSLESS_RD_COST_TEST_QP_PRIME - 12
-                         + 6
-                             * ((bitDepths.recon[CHANNEL_TYPE_LUMA] - 8)
-                                - DISTORTION_PRECISION_ADJUSTMENT(bitDepths.recon[CHANNEL_TYPE_LUMA])))
-                        / 3.0));
-  m_dLambdaMotionSAD[1] = sqrt(dLambda);
+  m_dLambdaMotionSAD    = sqrt(m_dLambda);
 }
 
+void RdCost::lambdaAdjustColorTrans(bool forward, ComponentID componentID, bool applyChromaScale, int* resScaleInv)
+{
+  if (m_resetStore)
+  {
+    for (uint8_t component = 0; component < MAX_NUM_COMPONENT; component++)
+    {
+      ComponentID compID = (ComponentID)component;
+      int       delta_QP = DELTA_QP_ACT[compID];
+      double lamdbaAdjustRate = pow(2.0, delta_QP / 3.0);
+
+      m_lambdaStore[0][component] = m_dLambda;
+      m_DistScaleStore[0][component] = m_DistScale;
+
+      m_lambdaStore[1][component] = m_dLambda * lamdbaAdjustRate;
+      m_DistScaleStore[1][component] = double(1 << SCALE_BITS) / m_lambdaStore[1][component];
+    }
+    m_resetStore = false;
+  }
+
+  if (forward)
+  {
+    CHECK(m_pairCheck == 1, "lambda has been already adjusted");
+    m_pairCheck = 1;
+  }
+  else
+  {
+    CHECK(m_pairCheck == 0, "lambda has not been adjusted");
+    m_pairCheck = 0;
+  }
+
+  m_dLambda = m_lambdaStore[m_pairCheck][componentID];
+  m_DistScale = m_DistScaleStore[m_pairCheck][componentID];
+  if (applyChromaScale)
+  {
+    CHECK(m_pairCheck == 0 || componentID == COMPONENT_Y, "wrong lambda adjustment for CS");
+    double cResScale = (double)(1 << CSCALE_FP_PREC) / (double)(*resScaleInv);
+    m_dLambda = m_dLambda / (cResScale*cResScale);
+    m_DistScale = double(1 << SCALE_BITS) / m_dLambda;
+  }
+  if (m_pairCheck == 0)
+  {
+    CHECK(m_DistScale != m_DistScaleUnadjusted, "lambda should be adjusted to the original value");
+  }
+}
 
 // Initialize Function Pointer by [eDFunc]
 void RdCost::init()
@@ -166,6 +206,8 @@ void RdCost::init()
 
   m_afpDistortFunc[DF_SAD_INTERMEDIATE_BITDEPTH] = RdCost::xGetSAD;
 
+  m_afpDistortFunc[DF_SAD_WITH_MASK] = RdCost::xGetSADwMask;
+
 #if ENABLE_SIMD_OPT_DIST
 #ifdef TARGET_SIMD_X86
   initRdCostX86();
@@ -176,27 +218,9 @@ void RdCost::init()
 
   m_motionLambda               = 0;
   m_iCostScale                 = 0;
+  m_resetStore = true;
+  m_pairCheck    = 0;
 }
-
-
-#if ENABLE_SPLIT_PARALLELISM
-
-void RdCost::copyState( const RdCost& other )
-{
-  m_costMode      = other.m_costMode;
-  m_dLambda       = other.m_dLambda;
-  m_DistScale     = other.m_DistScale;
-  memcpy( m_distortionWeight, other.m_distortionWeight, sizeof( m_distortionWeight ) );
-  m_mvPredictor   = other.m_mvPredictor;
-  m_motionLambda  = other.m_motionLambda;
-  m_iCostScale    = other.m_iCostScale;
-  memcpy( m_dLambdaMotionSAD, other.m_dLambdaMotionSAD, sizeof( m_dLambdaMotionSAD ) );
-#if WCG_EXT
-  m_dLambda_unadjusted  = other.m_dLambda_unadjusted ;
-  m_DistScaleUnadjusted = other.m_DistScaleUnadjusted;
-#endif
-}
-#endif
 
 void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY, int iRefStride, int bitDepth, ComponentID compID, int subShiftMode, int step, bool useHadamard )
 {
@@ -273,6 +297,13 @@ void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRef
   else if( subShiftMode == 2 )
   {
     if( rcDP.org.height > 8 && rcDP.org.width <= 64 )
+    {
+      rcDP.subShift = 1;
+    }
+  }
+  else if( subShiftMode == 3 )
+  {
+    if (rcDP.org.height > 8 )
     {
       rcDP.subShift = 1;
     }
@@ -1861,7 +1892,6 @@ Distortion RdCost::xGetSSE16( const DistParam &rcDtParam )
 
   for( ; iRows != 0; iRows-- )
   {
-
     iTemp = piOrg[ 0] - piCur[ 0]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
     iTemp = piOrg[ 1] - piCur[ 1]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
     iTemp = piOrg[ 2] - piCur[ 2]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
@@ -1908,7 +1938,6 @@ Distortion RdCost::xGetSSE16N( const DistParam &rcDtParam )
   {
     for (int n = 0; n < iCols; n+=16 )
     {
-
       iTemp = piOrg[n+ 0] - piCur[n+ 0]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
       iTemp = piOrg[n+ 1] - piCur[n+ 1]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
       iTemp = piOrg[n+ 2] - piCur[n+ 2]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
@@ -1925,7 +1954,6 @@ Distortion RdCost::xGetSSE16N( const DistParam &rcDtParam )
       iTemp = piOrg[n+13] - piCur[n+13]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
       iTemp = piOrg[n+14] - piCur[n+14]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
       iTemp = piOrg[n+15] - piCur[n+15]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
-
     }
     piOrg += iStrideOrg;
     piCur += iStrideCur;
@@ -1955,7 +1983,6 @@ Distortion RdCost::xGetSSE32( const DistParam &rcDtParam )
 
   for( ; iRows != 0; iRows-- )
   {
-
     iTemp = piOrg[ 0] - piCur[ 0]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
     iTemp = piOrg[ 1] - piCur[ 1]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
     iTemp = piOrg[ 2] - piCur[ 2]; uiSum += Distortion(( iTemp * iTemp ) >> uiShift);
@@ -2107,7 +2134,11 @@ Distortion RdCost::xCalcHADs2x2( const Pel *piOrg, const Pel *piCur, int iStride
   m[2] = diff[0] - diff[2];
   m[3] = diff[1] - diff[3];
 
+#if JVET_R0164_MEAN_SCALED_SATD
+  satd += abs(m[0] + m[1]) >> 2;
+#else
   satd += abs(m[0] + m[1]);
+#endif
   satd += abs(m[0] - m[1]);
   satd += abs(m[2] + m[3]);
   satd += abs(m[2] - m[3]);
@@ -2206,7 +2237,12 @@ Distortion RdCost::xCalcHADs4x4( const Pel *piOrg, const Pel *piCur, int iStride
   {
     satd += abs(d[k]);
   }
-  satd = ((satd+1)>>1);
+
+#if JVET_R0164_MEAN_SCALED_SATD
+  satd -= abs(d[0]);
+  satd += abs(d[0]) >> 2;
+#endif
+  satd  = ((satd+1)>>1);
 
   return satd;
 }
@@ -2303,7 +2339,11 @@ Distortion RdCost::xCalcHADs8x8( const Pel *piOrg, const Pel *piCur, int iStride
     }
   }
 
-  sad=((sad+2)>>2);
+#if JVET_R0164_MEAN_SCALED_SATD
+  sad -= abs(m2[0][0]);
+  sad += abs(m2[0][0]) >> 2;
+#endif
+  sad  = ((sad+2)>>2);
 
   return sad;
 }
@@ -2449,7 +2489,11 @@ Distortion RdCost::xCalcHADs16x8( const Pel *piOrg, const Pel *piCur, int iStrid
     }
   }
 
-  sad = ( int ) ( sad / sqrt( 16.0 * 8 ) * 2 );
+#if JVET_R0164_MEAN_SCALED_SATD
+  sad -= abs(m2[0][0]);
+  sad += abs(m2[0][0]) >> 2;
+#endif
+  sad  = ( int ) ( sad / sqrt( 16.0 * 8 ) * 2 );
 
   return sad;
 }
@@ -2586,7 +2630,11 @@ Distortion RdCost::xCalcHADs8x16( const Pel *piOrg, const Pel *piCur, int iStrid
     }
   }
 
-  sad = ( int ) ( sad / sqrt( 16.0 * 8 ) * 2 );
+#if JVET_R0164_MEAN_SCALED_SATD
+  sad -= abs(m2[0][0]);
+  sad += abs(m2[0][0]) >> 2;
+#endif
+  sad  = ( int ) ( sad / sqrt( 16.0 * 8 ) * 2 );
 
   return sad;
 }
@@ -2659,7 +2707,11 @@ Distortion RdCost::xCalcHADs4x8( const Pel *piOrg, const Pel *piCur, int iStride
     }
   }
 
-  sad = ( int ) ( sad / sqrt( 4.0 * 8 ) * 2 );
+#if JVET_R0164_MEAN_SCALED_SATD
+  sad -= abs(m2[0][0]);
+  sad += abs(m2[0][0]) >> 2;
+#endif
+  sad  = ( int ) ( sad / sqrt( 4.0 * 8 ) * 2 );
 
   return sad;
 }
@@ -2738,7 +2790,11 @@ Distortion RdCost::xCalcHADs8x4( const Pel *piOrg, const Pel *piCur, int iStride
     }
   }
 
-  sad = ( int ) ( sad / sqrt( 4.0 * 8 ) * 2 );
+#if JVET_R0164_MEAN_SCALED_SATD
+  sad -= abs(m2[0][0]);
+  sad += abs(m2[0][0]) >> 2;
+#endif
+  sad  = ( int ) ( sad / sqrt( 4.0 * 8 ) * 2 );
 
   return sad;
 }
@@ -2874,26 +2930,21 @@ void RdCost::saveUnadjustedLambda()
   m_DistScaleUnadjusted = m_DistScale;
 }
 
-void RdCost::initLumaLevelToWeightTable()
+void RdCost::initLumaLevelToWeightTable(int bitDepth)
 {
-  for (int i = 0; i < LUMA_LEVEL_TO_DQP_LUT_MAXSIZE; i++) {
-    double x = i;
+  int lutSize = 1 << bitDepth;
+  if (m_lumaLevelToWeightPLUT.empty())
+  {
+    m_lumaLevelToWeightPLUT.resize(lutSize, 1.0);
+  }
+  for (int i = 0; i < lutSize; i++)
+  {
+    double x = bitDepth < 10 ? i << (10 - bitDepth) : bitDepth > 10 ? i >> (bitDepth - 10) : i;
     double y;
 
-/*
-    //always false
-    if (isSDR)  // set SDR weight table
-    {
-      y = 0.03*x - 3.0;        // this is the Equation used to derive the luma qp LUT for SDR in ST-2084
-      y = y<0 ? 0 : (y>12 ? 12 : y);
-
-    }
-    else
-*/
-    { // set SDR weight table
-      y = 0.015*x - 1.5 - 6;   // this is the Equation used to derive the luma qp LUT for HDR in MPEG HDR anchor3.2 (JCTCX-X1020)
-      y = y<-3 ? -3 : (y>6 ? 6 : y);
-    }
+    y = 0.015 * x - 1.5
+        - 6;   // this is the Equation used to derive the luma qp LUT for HDR in MPEG HDR anchor3.2 (JCTCX-X1020)
+    y = y < -3 ? -3 : (y > 6 ? 6 : y);
 
     m_lumaLevelToWeightPLUT[i] = pow(2.0, y / 3.0);      // or power(10, dQp/10)      they are almost equal
   }
@@ -2903,9 +2954,13 @@ void RdCost::initLumaLevelToWeightTableReshape()
 {
   int lutSize = 1 << m_lumaBD;
   if (m_reshapeLumaLevelToWeightPLUT.empty())
+  {
     m_reshapeLumaLevelToWeightPLUT.resize(lutSize, 1.0);
+  }
   if (m_lumaLevelToWeightPLUT.empty())
+  {
     m_lumaLevelToWeightPLUT.resize(lutSize, 1.0);
+  }
   if (m_signalType == RESHAPE_SIGNAL_PQ)
   {
     for (int i = 0; i < (1 << m_lumaBD); i++)
@@ -2938,11 +2993,7 @@ void RdCost::restoreReshapeLumaLevelToWeightTable()
 
 void RdCost::updateReshapeLumaLevelToWeightTable(SliceReshapeInfo &sliceReshape, Pel *wtTable, double cwt)
 {
-#if JVET_O0432_LMCS_ENCODER
   if (m_signalType == RESHAPE_SIGNAL_SDR || m_signalType == RESHAPE_SIGNAL_HLG)
-#else
-  if (m_signalType == RESHAPE_SIGNAL_SDR)
-#endif
   {
     if (sliceReshape.getSliceReshapeModelPresentFlag())
     {
@@ -2953,11 +3004,15 @@ void RdCost::updateReshapeLumaLevelToWeightTable(SliceReshapeInfo &sliceReshape,
       for (int i = 0; i < PIC_CODE_CW_BINS; i++)
       {
         if ((i < sliceReshape.reshaperModelMinBinIdx) || (i > sliceReshape.reshaperModelMaxBinIdx))
+        {
           weight = 1.0;
+        }
         else
         {
           if (sliceReshape.reshaperModelBinCWDelta[i] == 1 || (sliceReshape.reshaperModelBinCWDelta[i] == -1 * histLens))
+          {
             weight = wBin;
+          }
           else
           {
             weight = (double)wtTable[i] / (double)histLens;
@@ -2991,15 +3046,11 @@ Distortion RdCost::getWeightedMSE(int compIdx, const Pel org, const Pel cur, con
 
   if (compIdx == COMPONENT_Y)
   {
-     CHECK(org!=orgLuma, "");
+    CHECK(org != orgLuma, "");
   }
   // use luma to get weight
   double weight = 1.0;
-#if JVET_O0432_LMCS_ENCODER
   if (m_signalType == RESHAPE_SIGNAL_SDR || m_signalType == RESHAPE_SIGNAL_HLG)
-#else
-  if (m_signalType == RESHAPE_SIGNAL_SDR)
-#endif
   {
     if (compIdx == COMPONENT_Y)
     {
@@ -3418,5 +3469,68 @@ Distortion RdCost::xGetMRHADs( const DistParam &rcDtParam )
   modDistParam.org = modOrg;
 
   return m_afpDistortFunc[DF_HAD]( modDistParam );
+}
+
+void RdCost::setDistParam( DistParam &rcDP, const CPelBuf &org, const Pel* piRefY, int iRefStride, const Pel* mask, int iMaskStride, int stepX, int iMaskStride2, int bitDepth, ComponentID compID)
+{
+  rcDP.bitDepth     = bitDepth;
+  rcDP.compID       = compID;
+
+  // set Original & Curr Pointer / Stride
+  rcDP.org          = org;
+  rcDP.cur.buf      = piRefY;
+  rcDP.cur.stride   = iRefStride;
+
+  // set Mask
+  rcDP.mask         = mask;
+  rcDP.maskStride   = iMaskStride;
+  rcDP.stepX = stepX;
+  rcDP.maskStride2 = iMaskStride2;
+
+  // set Block Width / Height
+  rcDP.cur.width    = org.width;
+  rcDP.cur.height   = org.height;
+  rcDP.maximumDistortionForEarlyExit = std::numeric_limits<Distortion>::max();
+
+  // set Cost function for motion estimation with Mask
+  rcDP.distFunc = m_afpDistortFunc[ DF_SAD_WITH_MASK ];
+}
+
+Distortion RdCost::xGetSADwMask( const DistParam& rcDtParam )
+{
+  if ( rcDtParam.applyWeight )
+  {
+    return RdCostWeightPrediction::xGetSADw( rcDtParam );
+  }
+
+  const Pel* org           = rcDtParam.org.buf;
+  const Pel* cur           = rcDtParam.cur.buf;
+  const Pel* mask          = rcDtParam.mask;
+  const int  cols           = rcDtParam.org.width;
+  int        rows           = rcDtParam.org.height;
+  const int  subShift       = rcDtParam.subShift;
+  const int  subStep        = ( 1 << subShift);
+  const int  strideCur      = rcDtParam.cur.stride * subStep;
+  const int  strideOrg      = rcDtParam.org.stride * subStep;
+  const int  strideMask     = rcDtParam.maskStride * subStep;
+  const int  stepX = rcDtParam.stepX;
+  const int  strideMask2 = rcDtParam.maskStride2;
+  const uint32_t distortionShift = DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth);
+
+  Distortion sum = 0;
+  for (; rows != 0; rows -= subStep)
+  {
+    for (int n = 0; n < cols; n++)
+    {
+      sum += abs(org[n] - cur[n]) * *mask;
+      mask += stepX;
+    }
+    org += strideOrg;
+    cur += strideCur;
+    mask += strideMask;
+    mask += strideMask2;
+  }
+  sum <<= subShift;
+  return (sum >> distortionShift );
 }
 //! \}

@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,7 +51,7 @@
 void fastForwardDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2)
 {
   int j;
-  int E, O;
+  TCoeff E, O;
   TCoeff add = (shift > 0) ? (1 << (shift - 1)) : 0;
 
   const TMatrixCoeff *iT = g_trCoreDCT2P2[TRANSFORM_FORWARD][0];
@@ -85,8 +85,8 @@ void fastForwardDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int
 void fastInverseDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum)
 {
   int j;
-  int E, O;
-  int add = 1 << (shift - 1);
+  TCoeff E, O;
+  TCoeff add = TCoeff(1) << (shift - 1);
 
   const TMatrixCoeff *iT = g_trCoreDCT2P2[TRANSFORM_INVERSE][0];
 
@@ -98,8 +98,8 @@ void fastInverseDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int
     O = iT[2] * (src[0] - src[line]);
 
     /* Combining even and odd terms at each hierarchy levels to calculate the final spatial domain vector */
-    dst[0] = Clip3(outputMinimum, outputMaximum, (E + add) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum, (O + add) >> shift);
+    dst[0] = Clip3<TCoeff>(outputMinimum, outputMaximum, (E + add) >> shift);
+    dst[1] = Clip3<TCoeff>(outputMinimum, outputMaximum, (O + add) >> shift);
 
     src++;
     dst += 2;
@@ -108,18 +108,6 @@ void fastInverseDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int
   {
     memset(dst, 0, (iSkipLine << 1) * sizeof(TCoeff));
   }
-
-  /*TCoeff add = (shift > 0) ? (1 << (shift - 1)) : 0;
-
-  #define T(a,b)    ( (TCoeff)( g_aiT2[ TRANSFORM_INVERSE ][ a ][ b ] ) * src[ a * line ] )
-
-  for (int j = 0; j < line; j++, src++, dst += 2)
-  {
-  dst[0] = Clip3(outputMinimum, outputMaximum, (T(0, 0) + T(1, 0) + add) >> shift);
-  dst[1] = Clip3(outputMinimum, outputMaximum, (T(0, 1) + T(1, 1) + add) >> shift);
-  }
-
-  #undef  T*/
 }
 
 /** 4x4 forward transform implemented using partial butterfly structure (1D)
@@ -176,8 +164,8 @@ void fastForwardDCT2_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 void fastInverseDCT2_B4( const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum )
 {
   int j;
-  int E[2], O[2];
-  int add = 1 << ( shift - 1 );
+  TCoeff E[2], O[2];
+  TCoeff add = TCoeff(1) << ( shift - 1 );
 
   const TMatrixCoeff *iT = g_trCoreDCT2P4[TRANSFORM_INVERSE][0];
 
@@ -191,10 +179,10 @@ void fastInverseDCT2_B4( const TCoeff *src, TCoeff *dst, int shift, int line, in
     E[1] = iT[0 * 4 + 1] * src[   0] + iT[2 * 4 + 1] * src[2 * line];
 
     /* Combining even and odd terms at each hierarchy levels to calculate the final spatial domain vector */
-    dst[0] = Clip3( outputMinimum, outputMaximum, ( E[0] + O[0] + add ) >> shift );
-    dst[1] = Clip3( outputMinimum, outputMaximum, ( E[1] + O[1] + add ) >> shift );
-    dst[2] = Clip3( outputMinimum, outputMaximum, ( E[1] - O[1] + add ) >> shift );
-    dst[3] = Clip3( outputMinimum, outputMaximum, ( E[0] - O[0] + add ) >> shift );
+    dst[0] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[0] + O[0] + add ) >> shift );
+    dst[1] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[1] + O[1] + add ) >> shift );
+    dst[2] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[1] - O[1] + add ) >> shift );
+    dst[3] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[0] - O[0] + add ) >> shift );
 
     src++;
     dst += 4;
@@ -209,7 +197,7 @@ void fastInverseDCT2_B4( const TCoeff *src, TCoeff *dst, int shift, int line, in
 template< int uiTrSize >
 inline void _fastInverseMM( const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum, const TMatrixCoeff* iT )
 {
-  const int  rnd_factor  = 1 << (shift - 1);
+  const TCoeff rnd_factor = TCoeff(1) << (shift - 1);
   const int  reducedLine = line - iSkipLine;
   const int  cutoff      = uiTrSize - iSkipLine2;
 
@@ -217,12 +205,12 @@ inline void _fastInverseMM( const TCoeff *src, TCoeff *dst, int shift, int line,
   {
     for( int j = 0; j<uiTrSize; j++ )
     {
-      int iSum = 0;
+      TCoeff iSum = 0;
       for( int k = 0; k<cutoff; k++)
       {
         iSum += src[k*line + i] * iT[k*uiTrSize + j];
       }
-      dst[i*uiTrSize + j] = Clip3(outputMinimum, outputMaximum, (int)(iSum + rnd_factor) >> shift);
+      dst[i*uiTrSize + j] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iSum + rnd_factor) >> shift);
     }
   }
 
@@ -236,7 +224,7 @@ inline void _fastInverseMM( const TCoeff *src, TCoeff *dst, int shift, int line,
 template< int uiTrSize >
 inline void _fastForwardMM( const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TMatrixCoeff* tc )
 {
-  const int  rnd_factor  = 1 << (shift - 1);
+  const TCoeff rnd_factor = TCoeff(1) << (shift - 1);
   const int  reducedLine = line - iSkipLine;
   const int  cutoff      = uiTrSize - iSkipLine2;
   TCoeff *pCoef;
@@ -247,7 +235,7 @@ inline void _fastForwardMM( const TCoeff *src, TCoeff *dst, int shift, int line,
     const TMatrixCoeff* iT = tc;
     for( int j = 0; j<cutoff; j++ )
     {
-      int iSum = 0;
+      TCoeff iSum = 0;
       for( int k = 0; k<uiTrSize; k++ )
       {
         iSum += src[k] * iT[k];
@@ -344,9 +332,9 @@ void fastForwardDCT2_B8( const TCoeff *src, TCoeff *dst, int shift, int line, in
 void fastInverseDCT2_B8(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum)
 {
   int j, k;
-  int E[4], O[4];
-  int EE[2], EO[2];
-  int add = 1 << (shift - 1);
+  TCoeff E[4], O[4];
+  TCoeff EE[2], EO[2];
+  TCoeff add = TCoeff(1) << (shift - 1);
 
   const TMatrixCoeff *iT = g_trCoreDCT2P8[TRANSFORM_INVERSE][0];
 
@@ -372,8 +360,8 @@ void fastInverseDCT2_B8(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
     for( k = 0; k < 4; k++ )
     {
-      dst[k    ] = Clip3( outputMinimum, outputMaximum, ( E[    k] + O[    k] + add ) >> shift );
-      dst[k + 4] = Clip3( outputMinimum, outputMaximum, ( E[3 - k] - O[3 - k] + add ) >> shift );
+      dst[k    ] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[    k] + O[    k] + add ) >> shift );
+      dst[k + 4] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[3 - k] - O[3 - k] + add ) >> shift );
     }
     src++;
     dst += 8;
@@ -465,10 +453,10 @@ void fastForwardDCT2_B16(const TCoeff *src, TCoeff *dst, int shift, int line, in
 void fastInverseDCT2_B16( const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum )
 {
   int j, k;
-  int E  [8], O  [8];
-  int EE [4], EO [4];
-  int EEE[2], EEO[2];
-  int add = 1 << ( shift - 1 );
+  TCoeff E  [8], O  [8];
+  TCoeff EE [4], EO [4];
+  TCoeff EEE[2], EEO[2];
+  TCoeff add = TCoeff(1) << ( shift - 1 );
 
   const TMatrixCoeff *iT = g_trCoreDCT2P16[TRANSFORM_INVERSE][0];
 
@@ -504,8 +492,8 @@ void fastInverseDCT2_B16( const TCoeff *src, TCoeff *dst, int shift, int line, i
     }
     for( k = 0; k < 8; k++ )
     {
-      dst[k    ] = Clip3( outputMinimum, outputMaximum, ( E[    k] + O[    k] + add ) >> shift );
-      dst[k + 8] = Clip3( outputMinimum, outputMaximum, ( E[7 - k] - O[7 - k] + add ) >> shift );
+      dst[k    ] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[    k] + O[    k] + add ) >> shift );
+      dst[k + 8] = Clip3<TCoeff>( outputMinimum, outputMaximum, ( E[7 - k] - O[7 - k] + add ) >> shift );
     }
     src++;
     dst += 16;
@@ -515,8 +503,6 @@ void fastInverseDCT2_B16( const TCoeff *src, TCoeff *dst, int shift, int line, i
     memset( dst, 0, ( iSkipLine << 4 ) * sizeof( TCoeff ) );
   }
 }
-
-
 
 /** 32x32 forward transform implemented using partial butterfly structure (1D)
 *  \param src   input data (residual)
@@ -607,13 +593,12 @@ void fastForwardDCT2_B32( const TCoeff *src, TCoeff *dst, int shift, int line, i
 */
 void fastInverseDCT2_B32(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2, const TCoeff outputMinimum, const TCoeff outputMaximum)
 {
-
-  int j, k;
-  int E[16], O[16];
-  int EE[8], EO[8];
-  int EEE[4], EEO[4];
-  int EEEE[2], EEEO[2];
-  int add = 1 << (shift - 1);
+  TCoeff j, k;
+  TCoeff E[16], O[16];
+  TCoeff EE[8], EO[8];
+  TCoeff EEE[4], EEO[4];
+  TCoeff EEEE[2], EEEO[2];
+  TCoeff add = TCoeff(1) << (shift - 1);
 
   const TMatrixCoeff *iT = g_trCoreDCT2P32[TRANSFORM_INVERSE][0];
 
@@ -659,8 +644,8 @@ void fastInverseDCT2_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
     }
     for (k = 0;k<16;k++)
     {
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + add) >> shift);
-      dst[k + 16] = Clip3(outputMinimum, outputMaximum, (E[15 - k] - O[15 - k] + add) >> shift);
+      dst[k] = Clip3<TCoeff>(outputMinimum, outputMaximum, (E[k] + O[k] + add) >> shift);
+      dst[k + 16] = Clip3<TCoeff>(outputMinimum, outputMaximum, (E[15 - k] - O[15 - k] + add) >> shift);
     }
     src++;
     dst += 32;
@@ -851,8 +836,8 @@ void fastInverseDCT2_B64(const TCoeff *src, TCoeff *dst, int shift, int line, in
     }
     for (k = 0;k<32;k++)
     {
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + rnd_factor) >> shift);
-      dst[k + 32] = Clip3(outputMinimum, outputMaximum, (E[31 - k] - O[31 - k] + rnd_factor) >> shift);
+      dst[k] = Clip3<TCoeff>(outputMinimum, outputMaximum, (E[k] + O[k] + rnd_factor) >> shift);
+      dst[k + 32] = Clip3<TCoeff>(outputMinimum, outputMaximum, (E[31 - k] - O[31 - k] + rnd_factor) >> shift);
     }
     src++;
     dst += uiTrSize;
@@ -871,7 +856,7 @@ void fastForwardDST7_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDST7P4[TRANSFORM_FORWARD][0];
 
-  int c[4];
+  TCoeff c[4];
   TCoeff *pCoeff = dst;
   const int  reducedLine = line - iSkipLine;
   for (i = 0; i<reducedLine; i++)
@@ -918,10 +903,10 @@ void fastInverseDST7_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
     c[2] = src[0 * line] - src[3 * line];
     c[3] = iT[2] * src[1 * line];
 
-    dst[0] = Clip3(outputMinimum, outputMaximum, (iT[0] * c[0] + iT[1] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum, (iT[1] * c[2] - iT[0] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[2] = Clip3(outputMinimum, outputMaximum, (iT[2] * (src[0 * line] - src[2 * line] + src[3 * line]) + rnd_factor) >> shift);
-    dst[3] = Clip3(outputMinimum, outputMaximum, (iT[1] * c[0] + iT[0] * c[2] - c[3] + rnd_factor) >> shift);
+    dst[0] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[0] * c[0] + iT[1] * c[1] + c[3] + rnd_factor) >> shift);
+    dst[1] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[1] * c[2] - iT[0] * c[1] + c[3] + rnd_factor) >> shift);
+    dst[2] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[2] * (src[0 * line] - src[2 * line] + src[3 * line]) + rnd_factor) >> shift);
+    dst[3] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[1] * c[0] + iT[0] * c[2] - c[3] + rnd_factor) >> shift);
 
     dst += 4;
     src++;
@@ -1037,27 +1022,26 @@ void fastInverseDST7_B16(const TCoeff *src, TCoeff *dst, int shift, int line, in
 
     t = iT[10] * src[5 * line];
 
-    dst[ 2] = Clip3(outputMinimum, outputMaximum, (int)( iT[ 2]*d[0] + iT[ 8]*d[1] + iT[14]*d[2] + iT[11]*d[3] + iT[ 5]*d[4] + add ) >> shift);
-    dst[ 5] = Clip3(outputMinimum, outputMaximum, (int)( iT[ 5]*d[0] + iT[14]*d[1] + iT[ 2]*d[2] - iT[ 8]*d[3] - iT[11]*d[4] + add ) >> shift);
-    dst[ 8] = Clip3(outputMinimum, outputMaximum, (int)( iT[ 8]*d[0] + iT[ 5]*d[1] - iT[11]*d[2] - iT[ 2]*d[3] + iT[14]*d[4] + add ) >> shift);
-    dst[11] = Clip3(outputMinimum, outputMaximum, (int)( iT[11]*d[0] - iT[ 2]*d[1] - iT[ 5]*d[2] + iT[14]*d[3] - iT[ 8]*d[4] + add ) >> shift);
-    dst[14] = Clip3(outputMinimum, outputMaximum, (int)( iT[14]*d[0] - iT[11]*d[1] + iT[ 8]*d[2] - iT[ 5]*d[3] + iT[ 2]*d[4] + add ) >> shift);
+    dst[ 2] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[ 2]*d[0] + iT[ 8]*d[1] + iT[14]*d[2] + iT[11]*d[3] + iT[ 5]*d[4] + add ) >> shift);
+    dst[ 5] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[ 5]*d[0] + iT[14]*d[1] + iT[ 2]*d[2] - iT[ 8]*d[3] - iT[11]*d[4] + add ) >> shift);
+    dst[ 8] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[ 8]*d[0] + iT[ 5]*d[1] - iT[11]*d[2] - iT[ 2]*d[3] + iT[14]*d[4] + add ) >> shift);
+    dst[11] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[11]*d[0] - iT[ 2]*d[1] - iT[ 5]*d[2] + iT[14]*d[3] - iT[ 8]*d[4] + add ) >> shift);
+    dst[14] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[14]*d[0] - iT[11]*d[1] + iT[ 8]*d[2] - iT[ 5]*d[3] + iT[ 2]*d[4] + add ) >> shift);
 
-    dst[10] = Clip3(outputMinimum, outputMaximum, (int)( iT[10]*(src[ 0*line]-src[ 2*line]+src[ 3*line]-src[5*line]
+    dst[10] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[10]*(src[ 0*line]-src[ 2*line]+src[ 3*line]-src[5*line]
                                                                 +src[ 6*line]-src[ 8*line]+src[ 9*line]-src[11*line]
                                                                 +src[12*line]-src[14*line]+src[15*line]) + add ) >> shift);
 
-    dst[ 0] = Clip3(outputMinimum, outputMaximum, (int)( iT[0]*a[0] + iT[9]*b[0] + iT[2]*a[1] + iT[7]*b[1] + iT[4]*a[2] + iT[5]*b[2] + iT[6]*a[3] + iT[3]*b[3] + iT[8]*a[4] + iT[1]*b[4] + t + add ) >> shift);
-    dst[ 1] = Clip3(outputMinimum, outputMaximum, (int)( iT[1]*c[0] - iT[8]*b[0] + iT[5]*c[1] - iT[4]*b[1] + iT[9]*c[2] - iT[0]*b[2] + iT[2]*a[3] + iT[7]*c[3] + iT[6]*a[4] + iT[3]*c[4] + t + add ) >> shift);
-    dst[ 3] = Clip3(outputMinimum, outputMaximum, (int)( iT[3]*a[0] + iT[6]*b[0] + iT[0]*c[1] + iT[9]*a[1] + iT[1]*a[2] + iT[8]*c[2] + iT[4]*c[3] - iT[5]*b[3] - iT[2]*a[4] - iT[7]*b[4] - t + add ) >> shift);
-    dst[ 4] = Clip3(outputMinimum, outputMaximum, (int)( iT[4]*c[0] - iT[5]*b[0] + iT[6]*c[1] + iT[3]*a[1] + iT[7]*a[2] + iT[2]*b[2] - iT[1]*c[3] + iT[8]*b[3] - iT[9]*c[4] - iT[0]*a[4] - t + add ) >> shift);
-    dst[ 6] = Clip3(outputMinimum, outputMaximum, (int)( iT[6]*a[0] + iT[3]*b[0] + iT[9]*c[1] + iT[0]*a[1] - iT[1]*a[2] - iT[8]*b[2] - iT[4]*c[3] - iT[5]*a[3] - iT[2]*c[4] + iT[7]*b[4] + t + add ) >> shift);
-    dst[ 7] = Clip3(outputMinimum, outputMaximum, (int)( iT[7]*c[0] - iT[2]*b[0] + iT[8]*a[1] + iT[1]*b[1] - iT[6]*c[2] + iT[3]*b[2] - iT[9]*a[3] - iT[0]*b[3] + iT[5]*c[4] - iT[4]*b[4] + t + add ) >> shift);
-    dst[ 9] = Clip3(outputMinimum, outputMaximum, (int)( iT[9]*a[0] + iT[0]*b[0] + iT[2]*c[1] - iT[7]*b[1] - iT[5]*c[2] - iT[4]*a[2] + iT[3]*a[3] + iT[6]*b[3] + iT[8]*c[4] - iT[1]*b[4] - t + add ) >> shift);
-    dst[12] = Clip3(outputMinimum, outputMaximum, (int)( iT[1]*c[0] + iT[8]*a[0] - iT[5]*a[1] - iT[4]*b[1] - iT[0]*c[2] + iT[9]*b[2] + iT[7]*c[3] - iT[2]*b[3] - iT[6]*c[4] - iT[3]*a[4] + t + add ) >> shift);
-    dst[13] = Clip3(outputMinimum, outputMaximum, (int)( iT[7]*c[0] + iT[2]*a[0] - iT[8]*c[1] + iT[1]*b[1] + iT[3]*c[2] - iT[6]*b[2] + iT[0]*a[3] + iT[9]*b[3] - iT[5]*a[4] - iT[4]*b[4] + t + add ) >> shift);
-    dst[15] = Clip3(outputMinimum, outputMaximum, (int)( iT[4]*c[0] + iT[5]*a[0] - iT[3]*c[1] - iT[6]*a[1] + iT[2]*c[2] + iT[7]*a[2] - iT[1]*c[3] - iT[8]*a[3] + iT[0]*c[4] + iT[9]*a[4] - t + add ) >> shift);
-
+    dst[ 0] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0]*a[0] + iT[9]*b[0] + iT[2]*a[1] + iT[7]*b[1] + iT[4]*a[2] + iT[5]*b[2] + iT[6]*a[3] + iT[3]*b[3] + iT[8]*a[4] + iT[1]*b[4] + t + add ) >> shift);
+    dst[ 1] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[1]*c[0] - iT[8]*b[0] + iT[5]*c[1] - iT[4]*b[1] + iT[9]*c[2] - iT[0]*b[2] + iT[2]*a[3] + iT[7]*c[3] + iT[6]*a[4] + iT[3]*c[4] + t + add ) >> shift);
+    dst[ 3] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[3]*a[0] + iT[6]*b[0] + iT[0]*c[1] + iT[9]*a[1] + iT[1]*a[2] + iT[8]*c[2] + iT[4]*c[3] - iT[5]*b[3] - iT[2]*a[4] - iT[7]*b[4] - t + add ) >> shift);
+    dst[ 4] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[4]*c[0] - iT[5]*b[0] + iT[6]*c[1] + iT[3]*a[1] + iT[7]*a[2] + iT[2]*b[2] - iT[1]*c[3] + iT[8]*b[3] - iT[9]*c[4] - iT[0]*a[4] - t + add ) >> shift);
+    dst[ 6] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[6]*a[0] + iT[3]*b[0] + iT[9]*c[1] + iT[0]*a[1] - iT[1]*a[2] - iT[8]*b[2] - iT[4]*c[3] - iT[5]*a[3] - iT[2]*c[4] + iT[7]*b[4] + t + add ) >> shift);
+    dst[ 7] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[7]*c[0] - iT[2]*b[0] + iT[8]*a[1] + iT[1]*b[1] - iT[6]*c[2] + iT[3]*b[2] - iT[9]*a[3] - iT[0]*b[3] + iT[5]*c[4] - iT[4]*b[4] + t + add ) >> shift);
+    dst[ 9] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[9]*a[0] + iT[0]*b[0] + iT[2]*c[1] - iT[7]*b[1] - iT[5]*c[2] - iT[4]*a[2] + iT[3]*a[3] + iT[6]*b[3] + iT[8]*c[4] - iT[1]*b[4] - t + add ) >> shift);
+    dst[12] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[1]*c[0] + iT[8]*a[0] - iT[5]*a[1] - iT[4]*b[1] - iT[0]*c[2] + iT[9]*b[2] + iT[7]*c[3] - iT[2]*b[3] - iT[6]*c[4] - iT[3]*a[4] + t + add ) >> shift);
+    dst[13] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[7]*c[0] + iT[2]*a[0] - iT[8]*c[1] + iT[1]*b[1] + iT[3]*c[2] - iT[6]*b[2] + iT[0]*a[3] + iT[9]*b[3] - iT[5]*a[4] - iT[4]*b[4] + t + add ) >> shift);
+    dst[15] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[4]*c[0] + iT[5]*a[0] - iT[3]*c[1] - iT[6]*a[1] + iT[2]*c[2] + iT[7]*a[2] - iT[1]*c[3] - iT[8]*a[3] + iT[0]*c[4] + iT[9]*a[4] - t + add ) >> shift);
     src++;
     dst += 16;
   }
@@ -1209,41 +1193,40 @@ void fastInverseDST7_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
     t[0] = iT[12] * src[6*line] + iT[25] * src[19*line];
     t[1] = iT[25] * src[6*line] - iT[12] * src[19*line];
 
-    dst[ 0] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[1][0] - iT[11] * a[8][0] + iT[13] * a[7][0] + iT[24] * a[4][5] - iT[1] * a[8][5] + iT[10] * a[1][5] + iT[14] * a[4][0] + iT[23] * a[7][5] + iT[2] * a[1][1] - iT[9] * a[8][1] + iT[15] * a[7][1] + iT[22] * a[4][4] - iT[3] * a[8][4] + iT[8] * a[1][4] + iT[16] * a[4][1] + iT[21] * a[7][4] + iT[4] * a[1][2] - iT[7] * a[8][2] + iT[17] * a[7][2] + iT[20] * a[4][3] - iT[5] * a[8][3] + iT[6] * a[1][3] + iT[18] * a[4][2] + iT[19] * a[7][3] + t[0] + add) >> shift);
-    dst[ 1] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[4][2] - iT[11] * a[6][2] + iT[13] * a[0][3] + iT[24] * a[5][2] + iT[1] * a[2][0] + iT[10] * a[7][0] + iT[14] * a[5][5] - iT[23] * a[9][5] + iT[2] * a[7][2] + iT[9] * a[2][2] - iT[15] * a[9][3] + iT[22] * a[5][3] - iT[3] * a[6][0] - iT[8] * a[4][0] + iT[16] * a[5][0] + iT[21] * a[0][5] - iT[4] * a[4][1] - iT[7] * a[6][1] + iT[17] * a[0][4] + iT[20] * a[5][1] + iT[5] * a[2][1] + iT[6] * a[7][1] + iT[18] * a[5][4] - iT[19] * a[9][4] + t[1] + add) >> shift);
-    dst[ 2] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[2][4] - iT[11] * a[3][4] + iT[13] * a[0][4] + iT[24] * a[1][4] + iT[1] * a[4][3] + iT[10] * a[7][2] + iT[14] * a[1][2] - iT[23] * a[8][2] + iT[2] * a[3][0] - iT[9] * a[6][5] - iT[15] * a[8][0] + iT[22] * a[9][5] - iT[3] * a[6][4] + iT[8] * a[3][1] + iT[16] * a[9][4] - iT[21] * a[8][1] + iT[4] * a[7][3] + iT[7] * a[4][2] - iT[17] * a[8][3] + iT[20] * a[1][3] - iT[5] * a[3][5] - iT[6] * a[2][5] + iT[18] * a[1][5] + iT[19] * a[0][5] + t[1] + add) >> shift);
-    dst[ 3] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[5][4] + iT[11] * a[0][1] - iT[13] * a[4][4] - iT[24] * a[6][4] - iT[1] * a[1][3] - iT[10] * a[0][3] + iT[14] * a[2][3] + iT[23] * a[3][3] - iT[2] * a[0][4] - iT[9] * a[1][4] + iT[15] * a[3][4] + iT[22] * a[2][4] + iT[3] * a[0][0] + iT[8] * a[5][5] - iT[16] * a[6][5] - iT[21] * a[4][5] + iT[4] * a[5][0] - iT[7] * a[9][0] + iT[17] * a[7][5] + iT[20] * a[2][5] - iT[5] * a[8][2] + iT[6] * a[9][3] - iT[18] * a[6][3] + iT[19] * a[3][2] + t[0] + add) >> shift);
-    dst[ 5] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[1][5] + iT[11] * a[8][5] - iT[13] * a[7][5] - iT[24] * a[4][0] + iT[1] * a[5][1] + iT[10] * a[0][4] - iT[14] * a[4][1] - iT[23] * a[6][1] - iT[2] * a[8][3] + iT[9] * a[9][2] - iT[15] * a[6][2] + iT[22] * a[3][3] - iT[3] * a[0][2] - iT[8] * a[1][2] + iT[16] * a[3][2] + iT[21] * a[2][2] - iT[4] * a[9][4] + iT[7] * a[5][4] + iT[17] * a[2][1] + iT[20] * a[7][1] + iT[5] * a[1][0] - iT[6] * a[8][0] + iT[18] * a[7][0] + iT[19] * a[4][5] - t[0] + add) >> shift);
-    dst[ 6] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[7][5] - iT[11] * a[2][5] + iT[13] * a[9][0] - iT[24] * a[5][0] + iT[1] * a[3][4] - iT[10] * a[6][1] - iT[14] * a[8][4] + iT[23] * a[9][1] + iT[2] * a[4][2] + iT[9] * a[7][3] + iT[15] * a[1][3] - iT[22] * a[8][3] - iT[3] * a[2][2] - iT[8] * a[3][2] + iT[16] * a[0][2] + iT[21] * a[1][2] - iT[4] * a[6][4] - iT[7] * a[4][4] + iT[17] * a[5][4] + iT[20] * a[0][1] + iT[5] * a[7][0] + iT[6] * a[2][0] - iT[18] * a[9][5] + iT[19] * a[5][5] - t[1] + add) >> shift);
-    dst[ 7] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[6][3] - iT[11] * a[4][3] + iT[13] * a[5][3] + iT[24] * a[0][2] + iT[1] * a[7][1] + iT[10] * a[4][4] - iT[14] * a[8][1] + iT[23] * a[1][1] - iT[2] * a[7][5] - iT[9] * a[4][0] + iT[15] * a[8][5] - iT[22] * a[1][5] + iT[3] * a[7][3] + iT[8] * a[2][3] - iT[16] * a[9][2] + iT[21] * a[5][2] - iT[4] * a[6][5] + iT[7] * a[3][0] + iT[17] * a[9][5] - iT[20] * a[8][0] + iT[5] * a[6][1] - iT[6] * a[3][4] - iT[18] * a[9][1] + iT[19] * a[8][4] - t[1] + add) >> shift);
-    dst[ 8] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[1][1] - iT[11] * a[0][1] + iT[13] * a[2][1] + iT[24] * a[3][1] + iT[1] * a[1][3] - iT[10] * a[8][3] + iT[14] * a[7][3] + iT[23] * a[4][2] - iT[2] * a[9][1] + iT[9] * a[8][4] - iT[15] * a[3][4] + iT[22] * a[6][1] + iT[3] * a[5][5] + iT[8] * a[0][0] - iT[16] * a[4][5] - iT[21] * a[6][5] + iT[4] * a[0][5] + iT[7] * a[1][5] - iT[17] * a[3][5] - iT[20] * a[2][5] + iT[5] * a[5][3] - iT[6] * a[9][3] + iT[18] * a[7][2] + iT[19] * a[2][2] - t[0] + add) >> shift);
-    dst[10] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[8][3] - iT[11] * a[1][3] - iT[13] * a[4][2] - iT[24] * a[7][3] - iT[1] * a[8][0] + iT[10] * a[1][0] + iT[14] * a[4][5] + iT[23] * a[7][0] + iT[2] * a[5][3] + iT[9] * a[0][2] - iT[15] * a[4][3] - iT[22] * a[6][3] - iT[3] * a[5][0] - iT[8] * a[0][5] + iT[16] * a[4][0] + iT[21] * a[6][0] + iT[4] * a[1][4] + iT[7] * a[0][4] - iT[17] * a[2][4] - iT[20] * a[3][4] - iT[5] * a[1][1] - iT[6] * a[0][1] + iT[18] * a[2][1] + iT[19] * a[3][1] + t[0] + add) >> shift);
-    dst[11] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[7][0] + iT[11] * a[2][0] - iT[13] * a[9][5] + iT[24] * a[5][5] + iT[1] * a[2][5] + iT[10] * a[7][5] + iT[14] * a[5][0] - iT[23] * a[9][0] - iT[2] * a[2][1] - iT[9] * a[3][1] + iT[15] * a[0][1] + iT[22] * a[1][1] - iT[3] * a[7][4] - iT[8] * a[4][1] + iT[16] * a[8][4] - iT[21] * a[1][4] + iT[4] * a[3][2] - iT[7] * a[6][3] - iT[17] * a[8][2] + iT[20] * a[9][3] + iT[5] * a[4][2] + iT[6] * a[6][2] - iT[18] * a[0][3] - iT[19] * a[5][2] + t[1] + add) >> shift);
-    dst[13] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[9][5] - iT[11] * a[8][0] + iT[13] * a[3][0] - iT[24] * a[6][5] - iT[1] * a[8][5] + iT[10] * a[9][0] - iT[14] * a[6][0] + iT[23] * a[3][5] + iT[2] * a[5][4] - iT[9] * a[9][4] + iT[15] * a[7][1] + iT[22] * a[2][1] - iT[3] * a[1][4] + iT[8] * a[8][4] - iT[16] * a[7][4] - iT[21] * a[4][1] - iT[4] * a[0][2] - iT[7] * a[5][3] + iT[17] * a[6][3] + iT[20] * a[4][3] + iT[5] * a[0][3] + iT[6] * a[1][3] - iT[18] * a[3][3] - iT[19] * a[2][3] + t[0] + add) >> shift);
-    dst[15] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[9][1] + iT[11] * a[5][1] + iT[13] * a[2][4] + iT[24] * a[7][4] + iT[1] * a[9][3] - iT[10] * a[5][3] - iT[14] * a[2][2] - iT[23] * a[7][2] - iT[2] * a[9][5] + iT[9] * a[5][5] + iT[15] * a[2][0] + iT[22] * a[7][0] + iT[3] * a[9][4] - iT[8] * a[8][1] + iT[16] * a[3][1] - iT[21] * a[6][4] - iT[4] * a[9][2] + iT[7] * a[8][3] - iT[17] * a[3][3] + iT[20] * a[6][2] + iT[5] * a[9][0] - iT[6] * a[8][5] + iT[18] * a[3][5] - iT[19] * a[6][0] - t[0] + add) >> shift);
-    dst[16] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[4][4] + iT[11] * a[7][1] + iT[13] * a[1][1] - iT[24] * a[8][1] + iT[1] * a[6][2] - iT[10] * a[3][3] - iT[14] * a[9][2] + iT[23] * a[8][3] - iT[2] * a[6][1] - iT[9] * a[4][1] + iT[15] * a[5][1] + iT[22] * a[0][4] - iT[3] * a[4][5] - iT[8] * a[6][5] + iT[16] * a[0][0] + iT[21] * a[5][5] - iT[4] * a[6][0] + iT[7] * a[3][5] + iT[17] * a[9][0] - iT[20] * a[8][5] + iT[5] * a[6][3] + iT[6] * a[4][3] - iT[18] * a[5][3] - iT[19] * a[0][2] - t[1] + add) >> shift);
-    dst[17] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[7][2] - iT[11] * a[4][3] + iT[13] * a[8][2] - iT[24] * a[1][2] + iT[1] * a[7][1] + iT[10] * a[2][1] - iT[14] * a[9][4] + iT[23] * a[5][4] - iT[2] * a[3][5] + iT[9] * a[6][0] + iT[15] * a[8][5] - iT[22] * a[9][0] - iT[3] * a[2][3] - iT[8] * a[7][3] - iT[16] * a[5][2] + iT[21] * a[9][2] + iT[4] * a[4][5] + iT[7] * a[7][0] + iT[17] * a[1][0] - iT[20] * a[8][0] - iT[5] * a[2][4] - iT[6] * a[3][4] + iT[18] * a[0][4] + iT[19] * a[1][4] - t[1] + add) >> shift);
-    dst[18] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[9][0] + iT[11] * a[8][5] - iT[13] * a[3][5] + iT[24] * a[6][0] + iT[1] * a[5][1] - iT[10] * a[9][1] + iT[14] * a[7][4] + iT[23] * a[2][4] + iT[2] * a[0][3] + iT[9] * a[5][2] - iT[15] * a[6][2] - iT[22] * a[4][2] + iT[3] * a[1][2] + iT[8] * a[0][2] - iT[16] * a[2][2] - iT[21] * a[3][2] - iT[4] * a[8][1] + iT[7] * a[1][1] + iT[17] * a[4][4] + iT[20] * a[7][1] + iT[5] * a[9][5] - iT[6] * a[8][0] + iT[18] * a[3][0] - iT[19] * a[6][5] - t[0] + add) >> shift);
-    dst[20] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[8][2] - iT[11] * a[9][3] + iT[13] * a[6][3] - iT[24] * a[3][2] + iT[1] * a[0][1] + iT[10] * a[5][4] - iT[14] * a[6][4] - iT[23] * a[4][4] + iT[2] * a[1][5] + iT[9] * a[0][5] - iT[15] * a[2][5] - iT[22] * a[3][5] - iT[3] * a[9][2] + iT[8] * a[5][2] + iT[16] * a[2][3] + iT[21] * a[7][3] + iT[4] * a[5][5] - iT[7] * a[9][5] + iT[17] * a[7][0] + iT[20] * a[2][0] + iT[5] * a[0][4] + iT[6] * a[5][1] - iT[18] * a[6][1] - iT[19] * a[4][1] + t[0] + add) >> shift);
-    dst[21] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[2][1] - iT[11] * a[7][1] - iT[13] * a[5][4] + iT[24] * a[9][4] - iT[1] * a[6][2] - iT[10] * a[4][2] + iT[14] * a[5][2] + iT[23] * a[0][3] - iT[2] * a[2][4] - iT[9] * a[7][4] - iT[15] * a[5][1] + iT[22] * a[9][1] - iT[3] * a[6][5] - iT[8] * a[4][5] + iT[16] * a[5][5] + iT[21] * a[0][0] - iT[4] * a[4][0] - iT[7] * a[7][5] - iT[17] * a[1][5] + iT[20] * a[8][5] - iT[5] * a[7][2] - iT[6] * a[4][3] + iT[18] * a[8][2] - iT[19] * a[1][2] + t[1] + add) >> shift);
-    dst[22] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[6][1] - iT[11] * a[3][4] - iT[13] * a[9][1] + iT[24] * a[8][4] + iT[1] * a[4][3] + iT[10] * a[6][3] - iT[14] * a[0][2] - iT[23] * a[5][3] + iT[2] * a[7][0] + iT[9] * a[4][5] - iT[15] * a[8][0] + iT[22] * a[1][0] - iT[3] * a[3][1] + iT[8] * a[6][4] + iT[16] * a[8][1] - iT[21] * a[9][4] - iT[4] * a[2][3] - iT[7] * a[3][3] + iT[17] * a[0][3] + iT[20] * a[1][3] - iT[5] * a[7][5] - iT[6] * a[2][5] + iT[18] * a[9][0] - iT[19] * a[5][0] + t[1] + add) >> shift);
-    dst[23] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[0][3] - iT[11] * a[1][3] + iT[13] * a[3][3] + iT[24] * a[2][3] - iT[1] * a[8][0] + iT[10] * a[9][5] - iT[14] * a[6][5] + iT[23] * a[3][0] + iT[2] * a[8][2] - iT[9] * a[1][2] - iT[15] * a[4][3] - iT[22] * a[7][2] + iT[3] * a[0][5] + iT[8] * a[5][0] - iT[16] * a[6][0] - iT[21] * a[4][0] + iT[4] * a[8][4] - iT[7] * a[9][1] + iT[17] * a[6][1] - iT[20] * a[3][4] - iT[5] * a[5][4] - iT[6] * a[0][1] + iT[18] * a[4][4] + iT[19] * a[6][4] + t[0] + add) >> shift);
-    dst[26] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[3][0] - iT[11] * a[2][0] + iT[13] * a[1][0] + iT[24] * a[0][0] - iT[1] * a[2][5] - iT[10] * a[3][5] + iT[14] * a[0][5] + iT[23] * a[1][5] + iT[2] * a[4][4] + iT[9] * a[6][4] - iT[15] * a[0][1] - iT[22] * a[5][4] - iT[3] * a[4][1] - iT[8] * a[7][4] - iT[16] * a[1][4] + iT[21] * a[8][4] + iT[4] * a[2][2] + iT[7] * a[7][2] + iT[17] * a[5][3] - iT[20] * a[9][3] + iT[5] * a[3][3] - iT[6] * a[6][2] - iT[18] * a[8][3] + iT[19] * a[9][2] - t[1] + add) >> shift);
-    dst[27] = Clip3(outputMinimum, outputMaximum, (int)(-iT[0] * a[3][3] + iT[11] * a[6][2] + iT[13] * a[8][3] - iT[24] * a[9][2] - iT[1] * a[2][0] - iT[10] * a[3][0] + iT[14] * a[0][0] + iT[23] * a[1][0] - iT[2] * a[6][3] + iT[9] * a[3][2] + iT[15] * a[9][3] - iT[22] * a[8][2] - iT[3] * a[4][0] - iT[8] * a[6][0] + iT[16] * a[0][5] + iT[21] * a[5][0] - iT[4] * a[7][4] - iT[7] * a[2][4] + iT[17] * a[9][1] - iT[20] * a[5][1] - iT[5] * a[4][4] - iT[6] * a[7][1] - iT[18] * a[1][1] + iT[19] * a[8][1] - t[1] + add) >> shift);
-    dst[28] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[0][4] + iT[11] * a[5][1] - iT[13] * a[6][1] - iT[24] * a[4][1] + iT[1] * a[9][3] - iT[10] * a[8][2] + iT[14] * a[3][2] - iT[23] * a[6][3] - iT[2] * a[1][0] - iT[9] * a[0][0] + iT[15] * a[2][0] + iT[22] * a[3][0] + iT[3] * a[8][1] - iT[8] * a[9][4] + iT[16] * a[6][4] - iT[21] * a[3][1] - iT[4] * a[5][2] - iT[7] * a[0][3] + iT[17] * a[4][2] + iT[20] * a[6][2] + iT[5] * a[1][5] - iT[6] * a[8][5] + iT[18] * a[7][5] + iT[19] * a[4][0] - t[0] + add) >> shift);
-    dst[30] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[5][3] - iT[11] * a[9][3] + iT[13] * a[7][2] + iT[24] * a[2][2] + iT[1] * a[0][1] + iT[10] * a[1][1] - iT[14] * a[3][1] - iT[23] * a[2][1] + iT[2] * a[9][0] - iT[9] * a[5][0] - iT[15] * a[2][5] - iT[22] * a[7][5] - iT[3] * a[5][2] + iT[8] * a[9][2] - iT[16] * a[7][3] - iT[21] * a[2][3] - iT[4] * a[0][0] - iT[7] * a[1][0] + iT[17] * a[3][0] + iT[20] * a[2][0] - iT[5] * a[9][1] + iT[6] * a[5][1] + iT[18] * a[2][4] + iT[19] * a[7][4] + t[0] + add) >> shift);
-    dst[31] = Clip3(outputMinimum, outputMaximum, (int)( iT[0] * a[3][5] + iT[11] * a[2][5] - iT[13] * a[1][5] - iT[24] * a[0][5] - iT[1] * a[3][4] - iT[10] * a[2][4] + iT[14] * a[1][4] + iT[23] * a[0][4] + iT[2] * a[3][3] + iT[9] * a[2][3] - iT[15] * a[1][3] - iT[22] * a[0][3] - iT[3] * a[3][2] - iT[8] * a[2][2] + iT[16] * a[1][2] + iT[21] * a[0][2] + iT[4] * a[3][1] + iT[7] * a[2][1] - iT[17] * a[1][1] - iT[20] * a[0][1] - iT[5] * a[3][0] - iT[6] * a[2][0] + iT[18] * a[1][0] + iT[19] * a[0][0] + t[1] + add) >> shift);
+    dst[ 0] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[1][0] - iT[11] * a[8][0] + iT[13] * a[7][0] + iT[24] * a[4][5] - iT[1] * a[8][5] + iT[10] * a[1][5] + iT[14] * a[4][0] + iT[23] * a[7][5] + iT[2] * a[1][1] - iT[9] * a[8][1] + iT[15] * a[7][1] + iT[22] * a[4][4] - iT[3] * a[8][4] + iT[8] * a[1][4] + iT[16] * a[4][1] + iT[21] * a[7][4] + iT[4] * a[1][2] - iT[7] * a[8][2] + iT[17] * a[7][2] + iT[20] * a[4][3] - iT[5] * a[8][3] + iT[6] * a[1][3] + iT[18] * a[4][2] + iT[19] * a[7][3] + t[0] + add) >> shift);
+    dst[ 1] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[4][2] - iT[11] * a[6][2] + iT[13] * a[0][3] + iT[24] * a[5][2] + iT[1] * a[2][0] + iT[10] * a[7][0] + iT[14] * a[5][5] - iT[23] * a[9][5] + iT[2] * a[7][2] + iT[9] * a[2][2] - iT[15] * a[9][3] + iT[22] * a[5][3] - iT[3] * a[6][0] - iT[8] * a[4][0] + iT[16] * a[5][0] + iT[21] * a[0][5] - iT[4] * a[4][1] - iT[7] * a[6][1] + iT[17] * a[0][4] + iT[20] * a[5][1] + iT[5] * a[2][1] + iT[6] * a[7][1] + iT[18] * a[5][4] - iT[19] * a[9][4] + t[1] + add) >> shift);
+    dst[ 2] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[2][4] - iT[11] * a[3][4] + iT[13] * a[0][4] + iT[24] * a[1][4] + iT[1] * a[4][3] + iT[10] * a[7][2] + iT[14] * a[1][2] - iT[23] * a[8][2] + iT[2] * a[3][0] - iT[9] * a[6][5] - iT[15] * a[8][0] + iT[22] * a[9][5] - iT[3] * a[6][4] + iT[8] * a[3][1] + iT[16] * a[9][4] - iT[21] * a[8][1] + iT[4] * a[7][3] + iT[7] * a[4][2] - iT[17] * a[8][3] + iT[20] * a[1][3] - iT[5] * a[3][5] - iT[6] * a[2][5] + iT[18] * a[1][5] + iT[19] * a[0][5] + t[1] + add) >> shift);
+    dst[ 3] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[5][4] + iT[11] * a[0][1] - iT[13] * a[4][4] - iT[24] * a[6][4] - iT[1] * a[1][3] - iT[10] * a[0][3] + iT[14] * a[2][3] + iT[23] * a[3][3] - iT[2] * a[0][4] - iT[9] * a[1][4] + iT[15] * a[3][4] + iT[22] * a[2][4] + iT[3] * a[0][0] + iT[8] * a[5][5] - iT[16] * a[6][5] - iT[21] * a[4][5] + iT[4] * a[5][0] - iT[7] * a[9][0] + iT[17] * a[7][5] + iT[20] * a[2][5] - iT[5] * a[8][2] + iT[6] * a[9][3] - iT[18] * a[6][3] + iT[19] * a[3][2] + t[0] + add) >> shift);
+    dst[ 5] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[1][5] + iT[11] * a[8][5] - iT[13] * a[7][5] - iT[24] * a[4][0] + iT[1] * a[5][1] + iT[10] * a[0][4] - iT[14] * a[4][1] - iT[23] * a[6][1] - iT[2] * a[8][3] + iT[9] * a[9][2] - iT[15] * a[6][2] + iT[22] * a[3][3] - iT[3] * a[0][2] - iT[8] * a[1][2] + iT[16] * a[3][2] + iT[21] * a[2][2] - iT[4] * a[9][4] + iT[7] * a[5][4] + iT[17] * a[2][1] + iT[20] * a[7][1] + iT[5] * a[1][0] - iT[6] * a[8][0] + iT[18] * a[7][0] + iT[19] * a[4][5] - t[0] + add) >> shift);
+    dst[ 6] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[7][5] - iT[11] * a[2][5] + iT[13] * a[9][0] - iT[24] * a[5][0] + iT[1] * a[3][4] - iT[10] * a[6][1] - iT[14] * a[8][4] + iT[23] * a[9][1] + iT[2] * a[4][2] + iT[9] * a[7][3] + iT[15] * a[1][3] - iT[22] * a[8][3] - iT[3] * a[2][2] - iT[8] * a[3][2] + iT[16] * a[0][2] + iT[21] * a[1][2] - iT[4] * a[6][4] - iT[7] * a[4][4] + iT[17] * a[5][4] + iT[20] * a[0][1] + iT[5] * a[7][0] + iT[6] * a[2][0] - iT[18] * a[9][5] + iT[19] * a[5][5] - t[1] + add) >> shift);
+    dst[ 7] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[6][3] - iT[11] * a[4][3] + iT[13] * a[5][3] + iT[24] * a[0][2] + iT[1] * a[7][1] + iT[10] * a[4][4] - iT[14] * a[8][1] + iT[23] * a[1][1] - iT[2] * a[7][5] - iT[9] * a[4][0] + iT[15] * a[8][5] - iT[22] * a[1][5] + iT[3] * a[7][3] + iT[8] * a[2][3] - iT[16] * a[9][2] + iT[21] * a[5][2] - iT[4] * a[6][5] + iT[7] * a[3][0] + iT[17] * a[9][5] - iT[20] * a[8][0] + iT[5] * a[6][1] - iT[6] * a[3][4] - iT[18] * a[9][1] + iT[19] * a[8][4] - t[1] + add) >> shift);
+    dst[ 8] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[1][1] - iT[11] * a[0][1] + iT[13] * a[2][1] + iT[24] * a[3][1] + iT[1] * a[1][3] - iT[10] * a[8][3] + iT[14] * a[7][3] + iT[23] * a[4][2] - iT[2] * a[9][1] + iT[9] * a[8][4] - iT[15] * a[3][4] + iT[22] * a[6][1] + iT[3] * a[5][5] + iT[8] * a[0][0] - iT[16] * a[4][5] - iT[21] * a[6][5] + iT[4] * a[0][5] + iT[7] * a[1][5] - iT[17] * a[3][5] - iT[20] * a[2][5] + iT[5] * a[5][3] - iT[6] * a[9][3] + iT[18] * a[7][2] + iT[19] * a[2][2] - t[0] + add) >> shift);
+    dst[10] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[8][3] - iT[11] * a[1][3] - iT[13] * a[4][2] - iT[24] * a[7][3] - iT[1] * a[8][0] + iT[10] * a[1][0] + iT[14] * a[4][5] + iT[23] * a[7][0] + iT[2] * a[5][3] + iT[9] * a[0][2] - iT[15] * a[4][3] - iT[22] * a[6][3] - iT[3] * a[5][0] - iT[8] * a[0][5] + iT[16] * a[4][0] + iT[21] * a[6][0] + iT[4] * a[1][4] + iT[7] * a[0][4] - iT[17] * a[2][4] - iT[20] * a[3][4] - iT[5] * a[1][1] - iT[6] * a[0][1] + iT[18] * a[2][1] + iT[19] * a[3][1] + t[0] + add) >> shift);
+    dst[11] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[7][0] + iT[11] * a[2][0] - iT[13] * a[9][5] + iT[24] * a[5][5] + iT[1] * a[2][5] + iT[10] * a[7][5] + iT[14] * a[5][0] - iT[23] * a[9][0] - iT[2] * a[2][1] - iT[9] * a[3][1] + iT[15] * a[0][1] + iT[22] * a[1][1] - iT[3] * a[7][4] - iT[8] * a[4][1] + iT[16] * a[8][4] - iT[21] * a[1][4] + iT[4] * a[3][2] - iT[7] * a[6][3] - iT[17] * a[8][2] + iT[20] * a[9][3] + iT[5] * a[4][2] + iT[6] * a[6][2] - iT[18] * a[0][3] - iT[19] * a[5][2] + t[1] + add) >> shift);
+    dst[13] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[9][5] - iT[11] * a[8][0] + iT[13] * a[3][0] - iT[24] * a[6][5] - iT[1] * a[8][5] + iT[10] * a[9][0] - iT[14] * a[6][0] + iT[23] * a[3][5] + iT[2] * a[5][4] - iT[9] * a[9][4] + iT[15] * a[7][1] + iT[22] * a[2][1] - iT[3] * a[1][4] + iT[8] * a[8][4] - iT[16] * a[7][4] - iT[21] * a[4][1] - iT[4] * a[0][2] - iT[7] * a[5][3] + iT[17] * a[6][3] + iT[20] * a[4][3] + iT[5] * a[0][3] + iT[6] * a[1][3] - iT[18] * a[3][3] - iT[19] * a[2][3] + t[0] + add) >> shift);
+    dst[15] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[9][1] + iT[11] * a[5][1] + iT[13] * a[2][4] + iT[24] * a[7][4] + iT[1] * a[9][3] - iT[10] * a[5][3] - iT[14] * a[2][2] - iT[23] * a[7][2] - iT[2] * a[9][5] + iT[9] * a[5][5] + iT[15] * a[2][0] + iT[22] * a[7][0] + iT[3] * a[9][4] - iT[8] * a[8][1] + iT[16] * a[3][1] - iT[21] * a[6][4] - iT[4] * a[9][2] + iT[7] * a[8][3] - iT[17] * a[3][3] + iT[20] * a[6][2] + iT[5] * a[9][0] - iT[6] * a[8][5] + iT[18] * a[3][5] - iT[19] * a[6][0] - t[0] + add) >> shift);
+    dst[16] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[4][4] + iT[11] * a[7][1] + iT[13] * a[1][1] - iT[24] * a[8][1] + iT[1] * a[6][2] - iT[10] * a[3][3] - iT[14] * a[9][2] + iT[23] * a[8][3] - iT[2] * a[6][1] - iT[9] * a[4][1] + iT[15] * a[5][1] + iT[22] * a[0][4] - iT[3] * a[4][5] - iT[8] * a[6][5] + iT[16] * a[0][0] + iT[21] * a[5][5] - iT[4] * a[6][0] + iT[7] * a[3][5] + iT[17] * a[9][0] - iT[20] * a[8][5] + iT[5] * a[6][3] + iT[6] * a[4][3] - iT[18] * a[5][3] - iT[19] * a[0][2] - t[1] + add) >> shift);
+    dst[17] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[7][2] - iT[11] * a[4][3] + iT[13] * a[8][2] - iT[24] * a[1][2] + iT[1] * a[7][1] + iT[10] * a[2][1] - iT[14] * a[9][4] + iT[23] * a[5][4] - iT[2] * a[3][5] + iT[9] * a[6][0] + iT[15] * a[8][5] - iT[22] * a[9][0] - iT[3] * a[2][3] - iT[8] * a[7][3] - iT[16] * a[5][2] + iT[21] * a[9][2] + iT[4] * a[4][5] + iT[7] * a[7][0] + iT[17] * a[1][0] - iT[20] * a[8][0] - iT[5] * a[2][4] - iT[6] * a[3][4] + iT[18] * a[0][4] + iT[19] * a[1][4] - t[1] + add) >> shift);
+    dst[18] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[9][0] + iT[11] * a[8][5] - iT[13] * a[3][5] + iT[24] * a[6][0] + iT[1] * a[5][1] - iT[10] * a[9][1] + iT[14] * a[7][4] + iT[23] * a[2][4] + iT[2] * a[0][3] + iT[9] * a[5][2] - iT[15] * a[6][2] - iT[22] * a[4][2] + iT[3] * a[1][2] + iT[8] * a[0][2] - iT[16] * a[2][2] - iT[21] * a[3][2] - iT[4] * a[8][1] + iT[7] * a[1][1] + iT[17] * a[4][4] + iT[20] * a[7][1] + iT[5] * a[9][5] - iT[6] * a[8][0] + iT[18] * a[3][0] - iT[19] * a[6][5] - t[0] + add) >> shift);
+    dst[20] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[8][2] - iT[11] * a[9][3] + iT[13] * a[6][3] - iT[24] * a[3][2] + iT[1] * a[0][1] + iT[10] * a[5][4] - iT[14] * a[6][4] - iT[23] * a[4][4] + iT[2] * a[1][5] + iT[9] * a[0][5] - iT[15] * a[2][5] - iT[22] * a[3][5] - iT[3] * a[9][2] + iT[8] * a[5][2] + iT[16] * a[2][3] + iT[21] * a[7][3] + iT[4] * a[5][5] - iT[7] * a[9][5] + iT[17] * a[7][0] + iT[20] * a[2][0] + iT[5] * a[0][4] + iT[6] * a[5][1] - iT[18] * a[6][1] - iT[19] * a[4][1] + t[0] + add) >> shift);
+    dst[21] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[2][1] - iT[11] * a[7][1] - iT[13] * a[5][4] + iT[24] * a[9][4] - iT[1] * a[6][2] - iT[10] * a[4][2] + iT[14] * a[5][2] + iT[23] * a[0][3] - iT[2] * a[2][4] - iT[9] * a[7][4] - iT[15] * a[5][1] + iT[22] * a[9][1] - iT[3] * a[6][5] - iT[8] * a[4][5] + iT[16] * a[5][5] + iT[21] * a[0][0] - iT[4] * a[4][0] - iT[7] * a[7][5] - iT[17] * a[1][5] + iT[20] * a[8][5] - iT[5] * a[7][2] - iT[6] * a[4][3] + iT[18] * a[8][2] - iT[19] * a[1][2] + t[1] + add) >> shift);
+    dst[22] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[6][1] - iT[11] * a[3][4] - iT[13] * a[9][1] + iT[24] * a[8][4] + iT[1] * a[4][3] + iT[10] * a[6][3] - iT[14] * a[0][2] - iT[23] * a[5][3] + iT[2] * a[7][0] + iT[9] * a[4][5] - iT[15] * a[8][0] + iT[22] * a[1][0] - iT[3] * a[3][1] + iT[8] * a[6][4] + iT[16] * a[8][1] - iT[21] * a[9][4] - iT[4] * a[2][3] - iT[7] * a[3][3] + iT[17] * a[0][3] + iT[20] * a[1][3] - iT[5] * a[7][5] - iT[6] * a[2][5] + iT[18] * a[9][0] - iT[19] * a[5][0] + t[1] + add) >> shift);
+    dst[23] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[0][3] - iT[11] * a[1][3] + iT[13] * a[3][3] + iT[24] * a[2][3] - iT[1] * a[8][0] + iT[10] * a[9][5] - iT[14] * a[6][5] + iT[23] * a[3][0] + iT[2] * a[8][2] - iT[9] * a[1][2] - iT[15] * a[4][3] - iT[22] * a[7][2] + iT[3] * a[0][5] + iT[8] * a[5][0] - iT[16] * a[6][0] - iT[21] * a[4][0] + iT[4] * a[8][4] - iT[7] * a[9][1] + iT[17] * a[6][1] - iT[20] * a[3][4] - iT[5] * a[5][4] - iT[6] * a[0][1] + iT[18] * a[4][4] + iT[19] * a[6][4] + t[0] + add) >> shift);
+    dst[26] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[3][0] - iT[11] * a[2][0] + iT[13] * a[1][0] + iT[24] * a[0][0] - iT[1] * a[2][5] - iT[10] * a[3][5] + iT[14] * a[0][5] + iT[23] * a[1][5] + iT[2] * a[4][4] + iT[9] * a[6][4] - iT[15] * a[0][1] - iT[22] * a[5][4] - iT[3] * a[4][1] - iT[8] * a[7][4] - iT[16] * a[1][4] + iT[21] * a[8][4] + iT[4] * a[2][2] + iT[7] * a[7][2] + iT[17] * a[5][3] - iT[20] * a[9][3] + iT[5] * a[3][3] - iT[6] * a[6][2] - iT[18] * a[8][3] + iT[19] * a[9][2] - t[1] + add) >> shift);
+    dst[27] = Clip3<TCoeff>(outputMinimum, outputMaximum, (-iT[0] * a[3][3] + iT[11] * a[6][2] + iT[13] * a[8][3] - iT[24] * a[9][2] - iT[1] * a[2][0] - iT[10] * a[3][0] + iT[14] * a[0][0] + iT[23] * a[1][0] - iT[2] * a[6][3] + iT[9] * a[3][2] + iT[15] * a[9][3] - iT[22] * a[8][2] - iT[3] * a[4][0] - iT[8] * a[6][0] + iT[16] * a[0][5] + iT[21] * a[5][0] - iT[4] * a[7][4] - iT[7] * a[2][4] + iT[17] * a[9][1] - iT[20] * a[5][1] - iT[5] * a[4][4] - iT[6] * a[7][1] - iT[18] * a[1][1] + iT[19] * a[8][1] - t[1] + add) >> shift);
+    dst[28] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[0][4] + iT[11] * a[5][1] - iT[13] * a[6][1] - iT[24] * a[4][1] + iT[1] * a[9][3] - iT[10] * a[8][2] + iT[14] * a[3][2] - iT[23] * a[6][3] - iT[2] * a[1][0] - iT[9] * a[0][0] + iT[15] * a[2][0] + iT[22] * a[3][0] + iT[3] * a[8][1] - iT[8] * a[9][4] + iT[16] * a[6][4] - iT[21] * a[3][1] - iT[4] * a[5][2] - iT[7] * a[0][3] + iT[17] * a[4][2] + iT[20] * a[6][2] + iT[5] * a[1][5] - iT[6] * a[8][5] + iT[18] * a[7][5] + iT[19] * a[4][0] - t[0] + add) >> shift);
+    dst[30] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[5][3] - iT[11] * a[9][3] + iT[13] * a[7][2] + iT[24] * a[2][2] + iT[1] * a[0][1] + iT[10] * a[1][1] - iT[14] * a[3][1] - iT[23] * a[2][1] + iT[2] * a[9][0] - iT[9] * a[5][0] - iT[15] * a[2][5] - iT[22] * a[7][5] - iT[3] * a[5][2] + iT[8] * a[9][2] - iT[16] * a[7][3] - iT[21] * a[2][3] - iT[4] * a[0][0] - iT[7] * a[1][0] + iT[17] * a[3][0] + iT[20] * a[2][0] - iT[5] * a[9][1] + iT[6] * a[5][1] + iT[18] * a[2][4] + iT[19] * a[7][4] + t[0] + add) >> shift);
+    dst[31] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( iT[0] * a[3][5] + iT[11] * a[2][5] - iT[13] * a[1][5] - iT[24] * a[0][5] - iT[1] * a[3][4] - iT[10] * a[2][4] + iT[14] * a[1][4] + iT[23] * a[0][4] + iT[2] * a[3][3] + iT[9] * a[2][3] - iT[15] * a[1][3] - iT[22] * a[0][3] - iT[3] * a[3][2] - iT[8] * a[2][2] + iT[16] * a[1][2] + iT[21] * a[0][2] + iT[4] * a[3][1] + iT[7] * a[2][1] - iT[17] * a[1][1] - iT[20] * a[0][1] - iT[5] * a[3][0] - iT[6] * a[2][0] + iT[18] * a[1][0] + iT[19] * a[0][0] + t[1] + add) >> shift);
 
-    dst[ 4] = Clip3(outputMinimum, outputMaximum, (int)(iT[ 4] * b[0] + iT[14] * b[1] + iT[24] * b[2] + iT[29] * b[3] + iT[19] * b[4] + iT[ 9] * b[5] + add) >> shift);
-    dst[ 9] = Clip3(outputMinimum, outputMaximum, (int)(iT[ 9] * b[0] + iT[29] * b[1] + iT[14] * b[2] - iT[ 4] * b[3] - iT[24] * b[4] - iT[19] * b[5] + add) >> shift);
-    dst[14] = Clip3(outputMinimum, outputMaximum, (int)(iT[14] * b[0] + iT[19] * b[1] - iT[ 9] * b[2] - iT[24] * b[3] + iT[ 4] * b[4] + iT[29] * b[5] + add) >> shift);
-    dst[19] = Clip3(outputMinimum, outputMaximum, (int)(iT[19] * b[0] + iT[ 4] * b[1] - iT[29] * b[2] + iT[ 9] * b[3] + iT[14] * b[4] - iT[24] * b[5] + add) >> shift);
-    dst[24] = Clip3(outputMinimum, outputMaximum, (int)(iT[24] * b[0] - iT[ 9] * b[1] - iT[ 4] * b[2] + iT[19] * b[3] - iT[29] * b[4] + iT[14] * b[5] + add) >> shift);
-    dst[29] = Clip3(outputMinimum, outputMaximum, (int)(iT[29] * b[0] - iT[24] * b[1] + iT[19] * b[2] - iT[14] * b[3] + iT[ 9] * b[4] - iT[ 4] * b[5] + add) >> shift);
+    dst[ 4] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[ 4] * b[0] + iT[14] * b[1] + iT[24] * b[2] + iT[29] * b[3] + iT[19] * b[4] + iT[ 9] * b[5] + add) >> shift);
+    dst[ 9] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[ 9] * b[0] + iT[29] * b[1] + iT[14] * b[2] - iT[ 4] * b[3] - iT[24] * b[4] - iT[19] * b[5] + add) >> shift);
+    dst[14] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[14] * b[0] + iT[19] * b[1] - iT[ 9] * b[2] - iT[24] * b[3] + iT[ 4] * b[4] + iT[29] * b[5] + add) >> shift);
+    dst[19] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[19] * b[0] + iT[ 4] * b[1] - iT[29] * b[2] + iT[ 9] * b[3] + iT[14] * b[4] - iT[24] * b[5] + add) >> shift);
+    dst[24] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[24] * b[0] - iT[ 9] * b[1] - iT[ 4] * b[2] + iT[19] * b[3] - iT[29] * b[4] + iT[14] * b[5] + add) >> shift);
+    dst[29] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[29] * b[0] - iT[24] * b[1] + iT[19] * b[2] - iT[14] * b[3] + iT[ 9] * b[4] - iT[ 4] * b[5] + add) >> shift);
 
-    dst[12] = Clip3(outputMinimum, outputMaximum, (int)(iT[12]*c[0] + iT[25]*c[1] + add) >> shift);
-    dst[25] = Clip3(outputMinimum, outputMaximum, (int)(iT[25]*c[0] - iT[12]*c[1] + add) >> shift);
-
+    dst[12] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[12]*c[0] + iT[25]*c[1] + add) >> shift);
+    dst[25] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[25]*c[0] - iT[12]*c[1] + add) >> shift);
     src++;
     dst += 32;
   }
@@ -1265,7 +1248,7 @@ void fastForwardDCT8_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
   int rnd_factor = 1 << (shift - 1);
   const TMatrixCoeff *iT = g_trCoreDCT8P4[TRANSFORM_FORWARD][0];
 
-  int c[4];
+  TCoeff c[4];
   TCoeff *pCoeff = dst;
   const int  reducedLine = line - iSkipLine;
   for (i = 0; i<reducedLine; i++)
@@ -1302,7 +1285,7 @@ void fastInverseDCT8_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDCT8P4[TRANSFORM_INVERSE][0];
 
-  int c[4];
+  TCoeff c[4];
   const int  reducedLine = line - iSkipLine;
   for (i = 0; i<reducedLine; i++)
   {
@@ -1312,11 +1295,10 @@ void fastInverseDCT8_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
     c[2] = src[3 * line] - src[2 * line];
     c[3] = iT[1] * src[1 * line];
 
-    dst[0] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[0] + iT[2] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum, (iT[1] * (src[0 * line] - src[2 * line] - src[3 * line]) + rnd_factor) >> shift);
-    dst[2] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[2] + iT[2] * c[0] - c[3] + rnd_factor) >> shift);
-    dst[3] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[1] - iT[2] * c[2] - c[3] + rnd_factor) >> shift);
-
+    dst[0] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[3] * c[0] + iT[2] * c[1] + c[3] + rnd_factor) >> shift);
+    dst[1] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[1] * (src[0 * line] - src[2 * line] - src[3 * line]) + rnd_factor) >> shift);
+    dst[2] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[3] * c[2] + iT[2] * c[0] - c[3] + rnd_factor) >> shift);
+    dst[3] = Clip3<TCoeff>(outputMinimum, outputMaximum, (iT[3] * c[1] - iT[2] * c[2] - c[3] + rnd_factor) >> shift);
     dst += 4;
     src++;
   }
@@ -1430,25 +1412,24 @@ void fastInverseDCT8_B16(const TCoeff *src, TCoeff *dst, int shift, int line, in
 
     t = iT[10] * src[5*line];
 
-    dst[ 1] = Clip3(outputMinimum, outputMaximum, (int)( - iT[ 2]*d[0] - iT[ 5]*d[1] - iT[ 8]*d[2] - iT[11]*d[3] - iT[14]*d[4] + add) >> shift);
-    dst[ 4] = Clip3(outputMinimum, outputMaximum, (int)(   iT[ 8]*d[0] + iT[14]*d[1] + iT[ 5]*d[2] - iT[ 2]*d[3] - iT[11]*d[4] + add) >> shift);
-    dst[ 7] = Clip3(outputMinimum, outputMaximum, (int)( - iT[14]*d[0] - iT[ 2]*d[1] + iT[11]*d[2] + iT[ 5]*d[3] - iT[ 8]*d[4] + add) >> shift);
-    dst[10] = Clip3(outputMinimum, outputMaximum, (int)(   iT[11]*d[0] - iT[ 8]*d[1] - iT[ 2]*d[2] + iT[14]*d[3] - iT[ 5]*d[4] + add) >> shift);
-    dst[13] = Clip3(outputMinimum, outputMaximum, (int)( - iT[ 5]*d[0] + iT[11]*d[1] - iT[14]*d[2] + iT[ 8]*d[3] - iT[ 2]*d[4] + add) >> shift);
+    dst[ 1] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[ 2]*d[0] - iT[ 5]*d[1] - iT[ 8]*d[2] - iT[11]*d[3] - iT[14]*d[4] + add) >> shift);
+    dst[ 4] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[ 8]*d[0] + iT[14]*d[1] + iT[ 5]*d[2] - iT[ 2]*d[3] - iT[11]*d[4] + add) >> shift);
+    dst[ 7] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[14]*d[0] - iT[ 2]*d[1] + iT[11]*d[2] + iT[ 5]*d[3] - iT[ 8]*d[4] + add) >> shift);
+    dst[10] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[11]*d[0] - iT[ 8]*d[1] - iT[ 2]*d[2] + iT[14]*d[3] - iT[ 5]*d[4] + add) >> shift);
+    dst[13] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[ 5]*d[0] + iT[11]*d[1] - iT[14]*d[2] + iT[ 8]*d[3] - iT[ 2]*d[4] + add) >> shift);
 
-    dst[ 5] = Clip3(outputMinimum, outputMaximum, (int)( - iT[10] * (src[15 * line] + src[14 * line] - src[12 * line] - src[11 * line] + src[9 * line] + src[8 * line] - src[6 * line] - src[5 * line] + src[3 * line] + src[2 * line] - src[0 * line]) + add) >> shift);
+    dst[ 5] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[10] * (src[15 * line] + src[14 * line] - src[12 * line] - src[11 * line] + src[9 * line] + src[8 * line] - src[6 * line] - src[5 * line] + src[3 * line] + src[2 * line] - src[0 * line]) + add) >> shift);
 
-    dst[ 0] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0]*a[0] + iT[9]*b[0] + iT[1]*a[1] + iT[8]*b[1] + iT[2]*a[2] + iT[7]*b[2] + iT[3]*a[3] + iT[6]*b[3] + iT[4]*a[4] + iT[5]*b[4] + t + add ) >> shift );
-    dst[ 2] = Clip3(outputMinimum, outputMaximum, (int)(   iT[4]*c[0] - iT[5]*b[0] + iT[9]*c[1] - iT[0]*b[1] + iT[6]*c[2] + iT[3]*a[2] + iT[1]*c[3] + iT[8]*a[3] + iT[7]*a[4] + iT[2]*b[4] - t + add ) >> shift );
-    dst[ 3] = Clip3(outputMinimum, outputMaximum, (int)( - iT[6]*a[0] - iT[3]*b[0] - iT[2]*c[1] - iT[7]*a[1] - iT[9]*c[2] - iT[0]*a[2] - iT[4]*c[3] + iT[5]*b[3] + iT[1]*a[4] + iT[8]*b[4] - t + add ) >> shift );
-    dst[ 6] = Clip3(outputMinimum, outputMaximum, (int)(   iT[8]*a[0] + iT[1]*c[0] + iT[6]*c[1] - iT[3]*b[1] - iT[5]*a[2] - iT[4]*b[2] - iT[7]*c[3] - iT[2]*a[3] - iT[0]*c[4] + iT[9]*b[4] + t + add ) >> shift );
-    dst[ 8] = Clip3(outputMinimum, outputMaximum, (int)(   iT[4]*c[0] + iT[5]*a[0] - iT[0]*c[1] + iT[9]*b[1] - iT[3]*c[2] - iT[6]*a[2] + iT[1]*c[3] - iT[8]*b[3] + iT[2]*c[4] + iT[7]*a[4] - t + add ) >> shift );
-    dst[ 9] = Clip3(outputMinimum, outputMaximum, (int)( - iT[7]*c[0] - iT[2]*a[0] + iT[4]*a[1] + iT[5]*b[1] + iT[8]*c[2] - iT[1]*b[2] - iT[9]*a[3] - iT[0]*b[3] - iT[3]*c[4] + iT[6]*b[4] - t + add ) >> shift );
-    dst[11] = Clip3(outputMinimum, outputMaximum, (int)( - iT[9]*a[0] - iT[0]*b[0] + iT[8]*c[1] + iT[1]*a[1] - iT[2]*c[2] + iT[7]*b[2] - iT[6]*a[3] - iT[3]*b[3] + iT[5]*c[4] + iT[4]*a[4] + t + add ) >> shift );
-    dst[12] = Clip3(outputMinimum, outputMaximum, (int)(   iT[7]*c[0] - iT[2]*b[0] - iT[5]*c[1] - iT[4]*a[1] + iT[8]*a[2] + iT[1]*b[2] - iT[0]*a[3] - iT[9]*b[3] - iT[6]*c[4] + iT[3]*b[4] + t + add ) >> shift );
-    dst[14] = Clip3(outputMinimum, outputMaximum, (int)(   iT[3]*a[0] + iT[6]*b[0] - iT[7]*a[1] - iT[2]*b[1] + iT[0]*c[2] + iT[9]*a[2] - iT[4]*c[3] - iT[5]*a[3] + iT[8]*c[4] + iT[1]*a[4] - t + add ) >> shift );
-    dst[15] = Clip3(outputMinimum, outputMaximum, (int)( - iT[1]*c[0] + iT[8]*b[0] + iT[3]*c[1] - iT[6]*b[1] - iT[5]*c[2] + iT[4]*b[2] + iT[7]*c[3] - iT[2]*b[3] - iT[9]*c[4] + iT[0]*b[4] - t + add ) >> shift );
-
+    dst[ 0] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0]*a[0] + iT[9]*b[0] + iT[1]*a[1] + iT[8]*b[1] + iT[2]*a[2] + iT[7]*b[2] + iT[3]*a[3] + iT[6]*b[3] + iT[4]*a[4] + iT[5]*b[4] + t + add ) >> shift );
+    dst[ 2] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[4]*c[0] - iT[5]*b[0] + iT[9]*c[1] - iT[0]*b[1] + iT[6]*c[2] + iT[3]*a[2] + iT[1]*c[3] + iT[8]*a[3] + iT[7]*a[4] + iT[2]*b[4] - t + add ) >> shift );
+    dst[ 3] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[6]*a[0] - iT[3]*b[0] - iT[2]*c[1] - iT[7]*a[1] - iT[9]*c[2] - iT[0]*a[2] - iT[4]*c[3] + iT[5]*b[3] + iT[1]*a[4] + iT[8]*b[4] - t + add ) >> shift );
+    dst[ 6] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[8]*a[0] + iT[1]*c[0] + iT[6]*c[1] - iT[3]*b[1] - iT[5]*a[2] - iT[4]*b[2] - iT[7]*c[3] - iT[2]*a[3] - iT[0]*c[4] + iT[9]*b[4] + t + add ) >> shift );
+    dst[ 8] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[4]*c[0] + iT[5]*a[0] - iT[0]*c[1] + iT[9]*b[1] - iT[3]*c[2] - iT[6]*a[2] + iT[1]*c[3] - iT[8]*b[3] + iT[2]*c[4] + iT[7]*a[4] - t + add ) >> shift );
+    dst[ 9] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[7]*c[0] - iT[2]*a[0] + iT[4]*a[1] + iT[5]*b[1] + iT[8]*c[2] - iT[1]*b[2] - iT[9]*a[3] - iT[0]*b[3] - iT[3]*c[4] + iT[6]*b[4] - t + add ) >> shift );
+    dst[11] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[9]*a[0] - iT[0]*b[0] + iT[8]*c[1] + iT[1]*a[1] - iT[2]*c[2] + iT[7]*b[2] - iT[6]*a[3] - iT[3]*b[3] + iT[5]*c[4] + iT[4]*a[4] + t + add ) >> shift );
+    dst[12] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[7]*c[0] - iT[2]*b[0] - iT[5]*c[1] - iT[4]*a[1] + iT[8]*a[2] + iT[1]*b[2] - iT[0]*a[3] - iT[9]*b[3] - iT[6]*c[4] + iT[3]*b[4] + t + add ) >> shift );
+    dst[14] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[3]*a[0] + iT[6]*b[0] - iT[7]*a[1] - iT[2]*b[1] + iT[0]*c[2] + iT[9]*a[2] - iT[4]*c[3] - iT[5]*a[3] + iT[8]*c[4] + iT[1]*a[4] - t + add ) >> shift );
+    dst[15] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[1]*c[0] + iT[8]*b[0] + iT[3]*c[1] - iT[6]*b[1] - iT[5]*c[2] + iT[4]*b[2] + iT[7]*c[3] - iT[2]*b[3] - iT[9]*c[4] + iT[0]*b[4] - t + add ) >> shift );
     src++;
     dst += 16;
   }
@@ -1603,41 +1584,40 @@ void fastInverseDCT8_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
     t[0] = iT[12] * src[19 * line] + iT[25] * src[ 6 * line];
     t[1] = iT[12] * src[ 6 * line] - iT[25] * src[19 * line];
 
-    dst[ 0] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[3][0] + iT[11] * a[6][5] + iT[13] * a[8][0] + iT[24] * a[9][5] + iT[1] * a[3][1] + iT[10] * a[6][4] + iT[14] * a[8][1] + iT[23] * a[9][4] + iT[2] * a[3][2] + iT[9] * a[6][3] + iT[15] * a[8][2] + iT[22] * a[9][3] + iT[3] * a[3][3] + iT[8] * a[6][2] + iT[16] * a[8][3] + iT[21] * a[9][2] + iT[4] * a[3][4] + iT[7] * a[6][1] + iT[17] * a[8][4] + iT[20] * a[9][1] + iT[5] * a[3][5] + iT[6] * a[6][0] + iT[18] * a[8][5] + iT[19] * a[9][0] + t[0] + add) >> shift);
-    dst[ 1] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[5][2] - iT[11] * a[0][3] - iT[13] * a[4][2] - iT[24] * a[6][2] - iT[1] * a[9][1] - iT[10] * a[8][4] - iT[14] * a[3][4] - iT[23] * a[6][1] - iT[2] * a[0][0] + iT[9] * a[5][5] - iT[15] * a[6][5] - iT[22] * a[4][5] + iT[3] * a[5][3] - iT[8] * a[0][2] - iT[16] * a[4][3] - iT[21] * a[6][3] - iT[4] * a[9][0] - iT[7] * a[8][5] - iT[17] * a[3][5] - iT[20] * a[6][0] - iT[5] * a[0][1] + iT[6] * a[5][4] - iT[18] * a[6][4] - iT[19] * a[4][4] + t[1] + add) >> shift);
-    dst[ 3] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[9][4] + iT[11] * a[5][4] - iT[13] * a[2][1] + iT[24] * a[7][1] + iT[1] * a[0][3] + iT[10] * a[1][3] - iT[14] * a[3][3] - iT[23] * a[2][3] - iT[2] * a[8][5] - iT[9] * a[9][0] - iT[15] * a[6][0] - iT[22] * a[3][5] + iT[3] * a[1][4] + iT[8] * a[0][4] - iT[16] * a[2][4] - iT[21] * a[3][4] + iT[4] * a[5][3] + iT[7] * a[9][3] + iT[17] * a[7][2] - iT[20] * a[2][2] - iT[5] * a[8][0] - iT[6] * a[1][0] + iT[18] * a[4][5] + iT[19] * a[7][0] - t[1] + add) >> shift);
-    dst[ 4] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[3][2] - iT[11] * a[2][2] + iT[13] * a[1][2] + iT[24] * a[0][2] + iT[1] * a[6][0] + iT[10] * a[3][5] + iT[14] * a[9][0] + iT[23] * a[8][5] - iT[2] * a[2][3] - iT[9] * a[3][3] + iT[15] * a[0][3] + iT[22] * a[1][3] - iT[3] * a[7][0] + iT[8] * a[2][0] - iT[16] * a[9][5] - iT[21] * a[5][5] + iT[4] * a[4][4] + iT[7] * a[6][4] + iT[17] * a[0][1] - iT[20] * a[5][4] - iT[5] * a[7][4] - iT[6] * a[4][1] + iT[18] * a[8][4] + iT[19] * a[1][4] - t[0] + add) >> shift);
-    dst[ 5] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[3][5] + iT[11] * a[6][0] + iT[13] * a[8][5] + iT[24] * a[9][0] - iT[1] * a[6][5] - iT[10] * a[3][0] - iT[14] * a[9][5] - iT[23] * a[8][0] + iT[2] * a[7][4] - iT[9] * a[2][4] + iT[15] * a[9][1] + iT[22] * a[5][1] + iT[3] * a[7][1] + iT[8] * a[4][4] - iT[16] * a[8][1] - iT[21] * a[1][1] - iT[4] * a[6][2] - iT[7] * a[4][2] + iT[17] * a[5][2] - iT[20] * a[0][3] + iT[5] * a[3][2] + iT[6] * a[2][2] - iT[18] * a[1][2] - iT[19] * a[0][2] - t[0] + add) >> shift);
-    dst[ 8] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[9][3] + iT[11] * a[8][2] + iT[13] * a[3][2] + iT[24] * a[6][3] + iT[1] * a[1][5] + iT[10] * a[0][5] - iT[14] * a[2][5] - iT[23] * a[3][5] - iT[2] * a[1][3] - iT[9] * a[8][3] + iT[15] * a[7][3] + iT[22] * a[4][2] - iT[3] * a[9][5] - iT[8] * a[5][5] + iT[16] * a[2][0] - iT[21] * a[7][0] - iT[4] * a[1][1] - iT[7] * a[0][1] + iT[17] * a[2][1] + iT[20] * a[3][1] + iT[5] * a[5][1] + iT[6] * a[9][1] + iT[18] * a[7][4] - iT[19] * a[2][4] + t[1] + add) >> shift);
-    dst[ 9] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[2][1] + iT[11] * a[3][1] - iT[13] * a[0][1] - iT[24] * a[1][1] - iT[1] * a[7][3] + iT[10] * a[2][3] - iT[14] * a[9][2] - iT[23] * a[5][2] - iT[2] * a[4][0] - iT[9] * a[7][5] + iT[15] * a[1][5] + iT[22] * a[8][5] - iT[3] * a[3][4] - iT[8] * a[2][4] + iT[16] * a[1][4] + iT[21] * a[0][4] - iT[4] * a[6][3] - iT[7] * a[3][2] - iT[17] * a[9][3] - iT[20] * a[8][2] - iT[5] * a[4][5] - iT[6] * a[6][5] - iT[18] * a[0][0] + iT[19] * a[5][5] + t[0] + add) >> shift);
-    dst[10] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[6][1] - iT[11] * a[4][1] + iT[13] * a[5][1] - iT[24] * a[0][4] + iT[1] * a[2][2] - iT[10] * a[7][2] - iT[14] * a[5][3] - iT[23] * a[9][3] + iT[2] * a[6][4] + iT[9] * a[4][4] - iT[15] * a[5][4] + iT[22] * a[0][1] - iT[3] * a[2][5] + iT[8] * a[7][5] + iT[16] * a[5][0] + iT[21] * a[9][0] - iT[4] * a[7][0] - iT[7] * a[4][5] + iT[17] * a[8][0] + iT[20] * a[1][0] + iT[5] * a[4][2] + iT[6] * a[7][3] - iT[18] * a[1][3] - iT[19] * a[8][3] + t[0] + add) >> shift);
-    dst[11] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[1][3] - iT[11] * a[0][3] + iT[13] * a[2][3] + iT[24] * a[3][3] - iT[1] * a[9][1] - iT[10] * a[5][1] + iT[14] * a[2][4] - iT[23] * a[7][4] - iT[2] * a[8][0] - iT[9] * a[9][5] - iT[15] * a[6][5] - iT[22] * a[3][0] + iT[3] * a[0][2] - iT[8] * a[5][3] + iT[16] * a[6][3] + iT[21] * a[4][3] + iT[4] * a[5][0] - iT[7] * a[0][5] - iT[17] * a[4][0] - iT[20] * a[6][0] + iT[5] * a[9][4] + iT[6] * a[5][4] - iT[18] * a[2][1] + iT[19] * a[7][1] + t[1] + add) >> shift);
-    dst[13] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[0][0] + iT[11] * a[1][0] - iT[13] * a[3][0] - iT[24] * a[2][0] + iT[1] * a[5][4] - iT[10] * a[0][1] - iT[14] * a[4][4] - iT[23] * a[6][4] - iT[2] * a[9][3] - iT[9] * a[5][3] + iT[15] * a[2][2] - iT[22] * a[7][2] + iT[3] * a[8][3] + iT[8] * a[9][2] + iT[16] * a[6][2] + iT[21] * a[3][3] - iT[4] * a[1][4] - iT[7] * a[8][4] + iT[17] * a[7][4] + iT[20] * a[4][1] + iT[5] * a[0][5] + iT[6] * a[1][5] - iT[18] * a[3][5] - iT[19] * a[2][5] - t[1] + add) >> shift);
-    dst[14] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[4][2] + iT[11] * a[7][3] - iT[13] * a[1][3] - iT[24] * a[8][3] + iT[1] * a[4][1] + iT[10] * a[6][1] + iT[14] * a[0][4] - iT[23] * a[5][1] - iT[2] * a[3][0] - iT[9] * a[2][0] + iT[15] * a[1][0] + iT[22] * a[0][0] - iT[3] * a[6][3] - iT[8] * a[4][3] + iT[16] * a[5][3] - iT[21] * a[0][2] - iT[4] * a[7][5] - iT[7] * a[4][0] + iT[17] * a[8][5] + iT[20] * a[1][5] + iT[5] * a[6][4] + iT[6] * a[3][1] + iT[18] * a[9][4] + iT[19] * a[8][1] - t[0] + add) >> shift);
-    dst[15] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[7][4] + iT[11] * a[4][1] - iT[13] * a[8][4] - iT[24] * a[1][4] - iT[1] * a[2][2] - iT[10] * a[3][2] + iT[14] * a[0][2] + iT[23] * a[1][2] - iT[2] * a[2][1] + iT[9] * a[7][1] + iT[15] * a[5][4] + iT[22] * a[9][4] + iT[3] * a[7][5] - iT[8] * a[2][5] + iT[16] * a[9][0] + iT[21] * a[5][0] + iT[4] * a[2][0] + iT[7] * a[3][0] - iT[17] * a[0][0] - iT[20] * a[1][0] + iT[5] * a[2][3] - iT[6] * a[7][3] - iT[18] * a[5][2] - iT[19] * a[9][2] - t[0] + add) >> shift);
-    dst[16] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[0][1] + iT[11] * a[5][4] - iT[13] * a[6][4] - iT[24] * a[4][4] + iT[1] * a[0][3] - iT[10] * a[5][2] + iT[14] * a[6][2] + iT[23] * a[4][2] - iT[2] * a[0][5] + iT[9] * a[5][0] - iT[15] * a[6][0] - iT[22] * a[4][0] - iT[3] * a[0][4] - iT[8] * a[1][4] + iT[16] * a[3][4] + iT[21] * a[2][4] + iT[4] * a[0][2] + iT[7] * a[1][2] - iT[17] * a[3][2] - iT[20] * a[2][2] - iT[5] * a[0][0] - iT[6] * a[1][0] + iT[18] * a[3][0] + iT[19] * a[2][0] - t[1] + add) >> shift);
-    dst[18] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[0][5] + iT[11] * a[1][5] - iT[13] * a[3][5] - iT[24] * a[2][5] - iT[1] * a[1][0] - iT[10] * a[0][0] + iT[14] * a[2][0] + iT[23] * a[3][0] - iT[2] * a[5][1] + iT[9] * a[0][4] + iT[15] * a[4][1] + iT[22] * a[6][1] - iT[3] * a[8][1] - iT[8] * a[1][1] + iT[16] * a[4][4] + iT[21] * a[7][1] - iT[4] * a[9][2] - iT[7] * a[5][2] + iT[17] * a[2][3] - iT[20] * a[7][3] - iT[5] * a[9][3] - iT[6] * a[8][2] - iT[18] * a[3][2] - iT[19] * a[6][3] + t[1] + add) >> shift);
-    dst[20] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[4][0] - iT[11] * a[6][0] - iT[13] * a[0][5] + iT[24] * a[5][0] + iT[1] * a[6][5] + iT[10] * a[4][5] - iT[14] * a[5][5] + iT[23] * a[0][0] - iT[2] * a[6][1] - iT[9] * a[3][4] - iT[15] * a[9][1] - iT[22] * a[8][4] + iT[3] * a[4][4] + iT[8] * a[7][1] - iT[16] * a[1][1] - iT[21] * a[8][1] - iT[4] * a[3][3] - iT[7] * a[2][3] + iT[17] * a[1][3] + iT[20] * a[0][3] + iT[5] * a[7][2] - iT[6] * a[2][2] + iT[18] * a[9][3] + iT[19] * a[5][3] + t[0] + add) >> shift);
-    dst[21] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[1][2] + iT[11] * a[8][2] - iT[13] * a[7][2] - iT[24] * a[4][3] + iT[1] * a[1][5] + iT[10] * a[8][5] - iT[14] * a[7][5] - iT[23] * a[4][0] + iT[2] * a[5][2] + iT[9] * a[9][2] + iT[15] * a[7][3] - iT[22] * a[2][3] + iT[3] * a[5][5] + iT[8] * a[9][5] + iT[16] * a[7][0] - iT[21] * a[2][0] + iT[4] * a[8][1] + iT[7] * a[9][4] + iT[17] * a[6][4] + iT[20] * a[3][1] + iT[5] * a[8][4] + iT[6] * a[9][1] + iT[18] * a[6][1] + iT[19] * a[3][4] + t[1] + add) >> shift);
-    dst[23] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[8][4] + iT[11] * a[9][1] + iT[13] * a[6][1] + iT[24] * a[3][4] - iT[1] * a[8][2] - iT[10] * a[1][2] + iT[14] * a[4][3] + iT[23] * a[7][2] - iT[2] * a[0][1] - iT[9] * a[1][1] + iT[15] * a[3][1] + iT[22] * a[2][1] + iT[3] * a[5][0] + iT[8] * a[9][0] + iT[16] * a[7][5] - iT[21] * a[2][5] - iT[4] * a[9][5] - iT[7] * a[8][0] - iT[17] * a[3][0] - iT[20] * a[6][5] + iT[5] * a[5][2] - iT[6] * a[0][3] - iT[18] * a[4][2] - iT[19] * a[6][2] - t[1] + add) >> shift);
-    dst[24] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[2][3] + iT[11] * a[7][3] + iT[13] * a[5][2] + iT[24] * a[9][2] + iT[1] * a[4][1] + iT[10] * a[7][4] - iT[14] * a[1][4] - iT[23] * a[8][4] - iT[2] * a[4][5] - iT[9] * a[7][0] + iT[15] * a[1][0] + iT[22] * a[8][0] + iT[3] * a[4][3] + iT[8] * a[6][3] + iT[16] * a[0][2] - iT[21] * a[5][3] - iT[4] * a[2][5] - iT[7] * a[3][5] + iT[17] * a[0][5] + iT[20] * a[1][5] + iT[5] * a[2][1] + iT[6] * a[3][1] - iT[18] * a[0][1] - iT[19] * a[1][1] - t[0] + add) >> shift);
-    dst[25] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[4][5] - iT[11] * a[6][5] - iT[13] * a[0][0] + iT[24] * a[5][5] - iT[1] * a[3][1] - iT[10] * a[2][1] + iT[14] * a[1][1] + iT[23] * a[0][1] + iT[2] * a[7][2] + iT[9] * a[4][3] - iT[15] * a[8][2] - iT[22] * a[1][2] + iT[3] * a[6][2] + iT[8] * a[3][3] + iT[16] * a[9][2] + iT[21] * a[8][3] + iT[4] * a[2][4] - iT[7] * a[7][4] - iT[17] * a[5][1] - iT[20] * a[9][1] - iT[5] * a[4][0] - iT[6] * a[6][0] - iT[18] * a[0][5] + iT[19] * a[5][0] - t[0] + add) >> shift);
-    dst[26] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[8][0] + iT[11] * a[1][0] - iT[13] * a[4][5] - iT[24] * a[7][0] + iT[1] * a[5][4] + iT[10] * a[9][4] + iT[14] * a[7][1] - iT[23] * a[2][1] - iT[2] * a[1][2] - iT[9] * a[0][2] + iT[15] * a[2][2] + iT[22] * a[3][2] - iT[3] * a[9][2] - iT[8] * a[8][3] - iT[16] * a[3][3] - iT[21] * a[6][2] + iT[4] * a[0][4] - iT[7] * a[5][1] + iT[17] * a[6][1] + iT[20] * a[4][1] + iT[5] * a[8][5] + iT[6] * a[1][5] - iT[18] * a[4][0] - iT[19] * a[7][5] - t[1] + add) >> shift);
-    dst[28] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[5][1] - iT[11] * a[9][1] - iT[13] * a[7][4] + iT[24] * a[2][4] + iT[1] * a[8][2] + iT[10] * a[9][3] + iT[14] * a[6][3] + iT[23] * a[3][2] - iT[2] * a[9][4] - iT[9] * a[8][1] - iT[15] * a[3][1] - iT[22] * a[6][4] + iT[3] * a[9][0] + iT[8] * a[5][0] - iT[16] * a[2][5] + iT[21] * a[7][5] - iT[4] * a[5][5] + iT[7] * a[0][0] + iT[17] * a[4][5] + iT[20] * a[6][5] + iT[5] * a[1][3] + iT[6] * a[0][3] - iT[18] * a[2][3] - iT[19] * a[3][3] + t[1] + add) >> shift);
-    dst[29] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[6][4] + iT[11] * a[3][1] + iT[13] * a[9][4] + iT[24] * a[8][1] - iT[1] * a[7][3] - iT[10] * a[4][2] + iT[14] * a[8][3] + iT[23] * a[1][3] - iT[2] * a[3][5] - iT[9] * a[2][5] + iT[15] * a[1][5] + iT[22] * a[0][5] + iT[3] * a[2][4] + iT[8] * a[3][4] - iT[16] * a[0][4] - iT[21] * a[1][4] + iT[4] * a[4][3] + iT[7] * a[7][2] - iT[17] * a[1][2] - iT[20] * a[8][2] - iT[5] * a[3][0] - iT[6] * a[6][5] - iT[18] * a[8][0] - iT[19] * a[9][5] + t[0] + add) >> shift);
-    dst[30] = Clip3(outputMinimum, outputMaximum, (int)( - iT[0] * a[7][2] + iT[11] * a[2][2] - iT[13] * a[9][3] - iT[24] * a[5][3] - iT[1] * a[6][0] - iT[10] * a[4][0] + iT[14] * a[5][0] - iT[23] * a[0][5] - iT[2] * a[4][2] - iT[9] * a[6][2] - iT[15] * a[0][3] + iT[22] * a[5][2] + iT[3] * a[2][0] - iT[8] * a[7][0] - iT[16] * a[5][5] - iT[21] * a[9][5] + iT[4] * a[7][1] - iT[7] * a[2][1] + iT[17] * a[9][4] + iT[20] * a[5][4] + iT[5] * a[6][1] + iT[6] * a[4][1] - iT[18] * a[5][1] + iT[19] * a[0][4] + t[0] + add) >> shift);
-    dst[31] = Clip3(outputMinimum, outputMaximum, (int)(   iT[0] * a[8][5] + iT[11] * a[1][5] - iT[13] * a[4][0] - iT[24] * a[7][5] - iT[1] * a[1][0] - iT[10] * a[8][0] + iT[14] * a[7][0] + iT[23] * a[4][5] - iT[2] * a[8][4] - iT[9] * a[1][4] + iT[15] * a[4][1] + iT[22] * a[7][4] + iT[3] * a[1][1] + iT[8] * a[8][1] - iT[16] * a[7][1] - iT[21] * a[4][4] + iT[4] * a[8][3] + iT[7] * a[1][3] - iT[17] * a[4][2] - iT[20] * a[7][3] - iT[5] * a[1][2] - iT[6] * a[8][2] + iT[18] * a[7][2] + iT[19] * a[4][3] + t[1] + add) >> shift);
+    dst[ 0] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[3][0] + iT[11] * a[6][5] + iT[13] * a[8][0] + iT[24] * a[9][5] + iT[1] * a[3][1] + iT[10] * a[6][4] + iT[14] * a[8][1] + iT[23] * a[9][4] + iT[2] * a[3][2] + iT[9] * a[6][3] + iT[15] * a[8][2] + iT[22] * a[9][3] + iT[3] * a[3][3] + iT[8] * a[6][2] + iT[16] * a[8][3] + iT[21] * a[9][2] + iT[4] * a[3][4] + iT[7] * a[6][1] + iT[17] * a[8][4] + iT[20] * a[9][1] + iT[5] * a[3][5] + iT[6] * a[6][0] + iT[18] * a[8][5] + iT[19] * a[9][0] + t[0] + add) >> shift);
+    dst[ 1] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[5][2] - iT[11] * a[0][3] - iT[13] * a[4][2] - iT[24] * a[6][2] - iT[1] * a[9][1] - iT[10] * a[8][4] - iT[14] * a[3][4] - iT[23] * a[6][1] - iT[2] * a[0][0] + iT[9] * a[5][5] - iT[15] * a[6][5] - iT[22] * a[4][5] + iT[3] * a[5][3] - iT[8] * a[0][2] - iT[16] * a[4][3] - iT[21] * a[6][3] - iT[4] * a[9][0] - iT[7] * a[8][5] - iT[17] * a[3][5] - iT[20] * a[6][0] - iT[5] * a[0][1] + iT[6] * a[5][4] - iT[18] * a[6][4] - iT[19] * a[4][4] + t[1] + add) >> shift);
+    dst[ 3] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[9][4] + iT[11] * a[5][4] - iT[13] * a[2][1] + iT[24] * a[7][1] + iT[1] * a[0][3] + iT[10] * a[1][3] - iT[14] * a[3][3] - iT[23] * a[2][3] - iT[2] * a[8][5] - iT[9] * a[9][0] - iT[15] * a[6][0] - iT[22] * a[3][5] + iT[3] * a[1][4] + iT[8] * a[0][4] - iT[16] * a[2][4] - iT[21] * a[3][4] + iT[4] * a[5][3] + iT[7] * a[9][3] + iT[17] * a[7][2] - iT[20] * a[2][2] - iT[5] * a[8][0] - iT[6] * a[1][0] + iT[18] * a[4][5] + iT[19] * a[7][0] - t[1] + add) >> shift);
+    dst[ 4] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[3][2] - iT[11] * a[2][2] + iT[13] * a[1][2] + iT[24] * a[0][2] + iT[1] * a[6][0] + iT[10] * a[3][5] + iT[14] * a[9][0] + iT[23] * a[8][5] - iT[2] * a[2][3] - iT[9] * a[3][3] + iT[15] * a[0][3] + iT[22] * a[1][3] - iT[3] * a[7][0] + iT[8] * a[2][0] - iT[16] * a[9][5] - iT[21] * a[5][5] + iT[4] * a[4][4] + iT[7] * a[6][4] + iT[17] * a[0][1] - iT[20] * a[5][4] - iT[5] * a[7][4] - iT[6] * a[4][1] + iT[18] * a[8][4] + iT[19] * a[1][4] - t[0] + add) >> shift);
+    dst[ 5] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[3][5] + iT[11] * a[6][0] + iT[13] * a[8][5] + iT[24] * a[9][0] - iT[1] * a[6][5] - iT[10] * a[3][0] - iT[14] * a[9][5] - iT[23] * a[8][0] + iT[2] * a[7][4] - iT[9] * a[2][4] + iT[15] * a[9][1] + iT[22] * a[5][1] + iT[3] * a[7][1] + iT[8] * a[4][4] - iT[16] * a[8][1] - iT[21] * a[1][1] - iT[4] * a[6][2] - iT[7] * a[4][2] + iT[17] * a[5][2] - iT[20] * a[0][3] + iT[5] * a[3][2] + iT[6] * a[2][2] - iT[18] * a[1][2] - iT[19] * a[0][2] - t[0] + add) >> shift);
+    dst[ 8] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[9][3] + iT[11] * a[8][2] + iT[13] * a[3][2] + iT[24] * a[6][3] + iT[1] * a[1][5] + iT[10] * a[0][5] - iT[14] * a[2][5] - iT[23] * a[3][5] - iT[2] * a[1][3] - iT[9] * a[8][3] + iT[15] * a[7][3] + iT[22] * a[4][2] - iT[3] * a[9][5] - iT[8] * a[5][5] + iT[16] * a[2][0] - iT[21] * a[7][0] - iT[4] * a[1][1] - iT[7] * a[0][1] + iT[17] * a[2][1] + iT[20] * a[3][1] + iT[5] * a[5][1] + iT[6] * a[9][1] + iT[18] * a[7][4] - iT[19] * a[2][4] + t[1] + add) >> shift);
+    dst[ 9] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[2][1] + iT[11] * a[3][1] - iT[13] * a[0][1] - iT[24] * a[1][1] - iT[1] * a[7][3] + iT[10] * a[2][3] - iT[14] * a[9][2] - iT[23] * a[5][2] - iT[2] * a[4][0] - iT[9] * a[7][5] + iT[15] * a[1][5] + iT[22] * a[8][5] - iT[3] * a[3][4] - iT[8] * a[2][4] + iT[16] * a[1][4] + iT[21] * a[0][4] - iT[4] * a[6][3] - iT[7] * a[3][2] - iT[17] * a[9][3] - iT[20] * a[8][2] - iT[5] * a[4][5] - iT[6] * a[6][5] - iT[18] * a[0][0] + iT[19] * a[5][5] + t[0] + add) >> shift);
+    dst[10] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[6][1] - iT[11] * a[4][1] + iT[13] * a[5][1] - iT[24] * a[0][4] + iT[1] * a[2][2] - iT[10] * a[7][2] - iT[14] * a[5][3] - iT[23] * a[9][3] + iT[2] * a[6][4] + iT[9] * a[4][4] - iT[15] * a[5][4] + iT[22] * a[0][1] - iT[3] * a[2][5] + iT[8] * a[7][5] + iT[16] * a[5][0] + iT[21] * a[9][0] - iT[4] * a[7][0] - iT[7] * a[4][5] + iT[17] * a[8][0] + iT[20] * a[1][0] + iT[5] * a[4][2] + iT[6] * a[7][3] - iT[18] * a[1][3] - iT[19] * a[8][3] + t[0] + add) >> shift);
+    dst[11] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[1][3] - iT[11] * a[0][3] + iT[13] * a[2][3] + iT[24] * a[3][3] - iT[1] * a[9][1] - iT[10] * a[5][1] + iT[14] * a[2][4] - iT[23] * a[7][4] - iT[2] * a[8][0] - iT[9] * a[9][5] - iT[15] * a[6][5] - iT[22] * a[3][0] + iT[3] * a[0][2] - iT[8] * a[5][3] + iT[16] * a[6][3] + iT[21] * a[4][3] + iT[4] * a[5][0] - iT[7] * a[0][5] - iT[17] * a[4][0] - iT[20] * a[6][0] + iT[5] * a[9][4] + iT[6] * a[5][4] - iT[18] * a[2][1] + iT[19] * a[7][1] + t[1] + add) >> shift);
+    dst[13] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[0][0] + iT[11] * a[1][0] - iT[13] * a[3][0] - iT[24] * a[2][0] + iT[1] * a[5][4] - iT[10] * a[0][1] - iT[14] * a[4][4] - iT[23] * a[6][4] - iT[2] * a[9][3] - iT[9] * a[5][3] + iT[15] * a[2][2] - iT[22] * a[7][2] + iT[3] * a[8][3] + iT[8] * a[9][2] + iT[16] * a[6][2] + iT[21] * a[3][3] - iT[4] * a[1][4] - iT[7] * a[8][4] + iT[17] * a[7][4] + iT[20] * a[4][1] + iT[5] * a[0][5] + iT[6] * a[1][5] - iT[18] * a[3][5] - iT[19] * a[2][5] - t[1] + add) >> shift);
+    dst[14] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[4][2] + iT[11] * a[7][3] - iT[13] * a[1][3] - iT[24] * a[8][3] + iT[1] * a[4][1] + iT[10] * a[6][1] + iT[14] * a[0][4] - iT[23] * a[5][1] - iT[2] * a[3][0] - iT[9] * a[2][0] + iT[15] * a[1][0] + iT[22] * a[0][0] - iT[3] * a[6][3] - iT[8] * a[4][3] + iT[16] * a[5][3] - iT[21] * a[0][2] - iT[4] * a[7][5] - iT[7] * a[4][0] + iT[17] * a[8][5] + iT[20] * a[1][5] + iT[5] * a[6][4] + iT[6] * a[3][1] + iT[18] * a[9][4] + iT[19] * a[8][1] - t[0] + add) >> shift);
+    dst[15] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[7][4] + iT[11] * a[4][1] - iT[13] * a[8][4] - iT[24] * a[1][4] - iT[1] * a[2][2] - iT[10] * a[3][2] + iT[14] * a[0][2] + iT[23] * a[1][2] - iT[2] * a[2][1] + iT[9] * a[7][1] + iT[15] * a[5][4] + iT[22] * a[9][4] + iT[3] * a[7][5] - iT[8] * a[2][5] + iT[16] * a[9][0] + iT[21] * a[5][0] + iT[4] * a[2][0] + iT[7] * a[3][0] - iT[17] * a[0][0] - iT[20] * a[1][0] + iT[5] * a[2][3] - iT[6] * a[7][3] - iT[18] * a[5][2] - iT[19] * a[9][2] - t[0] + add) >> shift);
+    dst[16] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[0][1] + iT[11] * a[5][4] - iT[13] * a[6][4] - iT[24] * a[4][4] + iT[1] * a[0][3] - iT[10] * a[5][2] + iT[14] * a[6][2] + iT[23] * a[4][2] - iT[2] * a[0][5] + iT[9] * a[5][0] - iT[15] * a[6][0] - iT[22] * a[4][0] - iT[3] * a[0][4] - iT[8] * a[1][4] + iT[16] * a[3][4] + iT[21] * a[2][4] + iT[4] * a[0][2] + iT[7] * a[1][2] - iT[17] * a[3][2] - iT[20] * a[2][2] - iT[5] * a[0][0] - iT[6] * a[1][0] + iT[18] * a[3][0] + iT[19] * a[2][0] - t[1] + add) >> shift);
+    dst[18] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[0][5] + iT[11] * a[1][5] - iT[13] * a[3][5] - iT[24] * a[2][5] - iT[1] * a[1][0] - iT[10] * a[0][0] + iT[14] * a[2][0] + iT[23] * a[3][0] - iT[2] * a[5][1] + iT[9] * a[0][4] + iT[15] * a[4][1] + iT[22] * a[6][1] - iT[3] * a[8][1] - iT[8] * a[1][1] + iT[16] * a[4][4] + iT[21] * a[7][1] - iT[4] * a[9][2] - iT[7] * a[5][2] + iT[17] * a[2][3] - iT[20] * a[7][3] - iT[5] * a[9][3] - iT[6] * a[8][2] - iT[18] * a[3][2] - iT[19] * a[6][3] + t[1] + add) >> shift);
+    dst[20] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[4][0] - iT[11] * a[6][0] - iT[13] * a[0][5] + iT[24] * a[5][0] + iT[1] * a[6][5] + iT[10] * a[4][5] - iT[14] * a[5][5] + iT[23] * a[0][0] - iT[2] * a[6][1] - iT[9] * a[3][4] - iT[15] * a[9][1] - iT[22] * a[8][4] + iT[3] * a[4][4] + iT[8] * a[7][1] - iT[16] * a[1][1] - iT[21] * a[8][1] - iT[4] * a[3][3] - iT[7] * a[2][3] + iT[17] * a[1][3] + iT[20] * a[0][3] + iT[5] * a[7][2] - iT[6] * a[2][2] + iT[18] * a[9][3] + iT[19] * a[5][3] + t[0] + add) >> shift);
+    dst[21] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[1][2] + iT[11] * a[8][2] - iT[13] * a[7][2] - iT[24] * a[4][3] + iT[1] * a[1][5] + iT[10] * a[8][5] - iT[14] * a[7][5] - iT[23] * a[4][0] + iT[2] * a[5][2] + iT[9] * a[9][2] + iT[15] * a[7][3] - iT[22] * a[2][3] + iT[3] * a[5][5] + iT[8] * a[9][5] + iT[16] * a[7][0] - iT[21] * a[2][0] + iT[4] * a[8][1] + iT[7] * a[9][4] + iT[17] * a[6][4] + iT[20] * a[3][1] + iT[5] * a[8][4] + iT[6] * a[9][1] + iT[18] * a[6][1] + iT[19] * a[3][4] + t[1] + add) >> shift);
+    dst[23] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[8][4] + iT[11] * a[9][1] + iT[13] * a[6][1] + iT[24] * a[3][4] - iT[1] * a[8][2] - iT[10] * a[1][2] + iT[14] * a[4][3] + iT[23] * a[7][2] - iT[2] * a[0][1] - iT[9] * a[1][1] + iT[15] * a[3][1] + iT[22] * a[2][1] + iT[3] * a[5][0] + iT[8] * a[9][0] + iT[16] * a[7][5] - iT[21] * a[2][5] - iT[4] * a[9][5] - iT[7] * a[8][0] - iT[17] * a[3][0] - iT[20] * a[6][5] + iT[5] * a[5][2] - iT[6] * a[0][3] - iT[18] * a[4][2] - iT[19] * a[6][2] - t[1] + add) >> shift);
+    dst[24] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[2][3] + iT[11] * a[7][3] + iT[13] * a[5][2] + iT[24] * a[9][2] + iT[1] * a[4][1] + iT[10] * a[7][4] - iT[14] * a[1][4] - iT[23] * a[8][4] - iT[2] * a[4][5] - iT[9] * a[7][0] + iT[15] * a[1][0] + iT[22] * a[8][0] + iT[3] * a[4][3] + iT[8] * a[6][3] + iT[16] * a[0][2] - iT[21] * a[5][3] - iT[4] * a[2][5] - iT[7] * a[3][5] + iT[17] * a[0][5] + iT[20] * a[1][5] + iT[5] * a[2][1] + iT[6] * a[3][1] - iT[18] * a[0][1] - iT[19] * a[1][1] - t[0] + add) >> shift);
+    dst[25] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[4][5] - iT[11] * a[6][5] - iT[13] * a[0][0] + iT[24] * a[5][5] - iT[1] * a[3][1] - iT[10] * a[2][1] + iT[14] * a[1][1] + iT[23] * a[0][1] + iT[2] * a[7][2] + iT[9] * a[4][3] - iT[15] * a[8][2] - iT[22] * a[1][2] + iT[3] * a[6][2] + iT[8] * a[3][3] + iT[16] * a[9][2] + iT[21] * a[8][3] + iT[4] * a[2][4] - iT[7] * a[7][4] - iT[17] * a[5][1] - iT[20] * a[9][1] - iT[5] * a[4][0] - iT[6] * a[6][0] - iT[18] * a[0][5] + iT[19] * a[5][0] - t[0] + add) >> shift);
+    dst[26] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[8][0] + iT[11] * a[1][0] - iT[13] * a[4][5] - iT[24] * a[7][0] + iT[1] * a[5][4] + iT[10] * a[9][4] + iT[14] * a[7][1] - iT[23] * a[2][1] - iT[2] * a[1][2] - iT[9] * a[0][2] + iT[15] * a[2][2] + iT[22] * a[3][2] - iT[3] * a[9][2] - iT[8] * a[8][3] - iT[16] * a[3][3] - iT[21] * a[6][2] + iT[4] * a[0][4] - iT[7] * a[5][1] + iT[17] * a[6][1] + iT[20] * a[4][1] + iT[5] * a[8][5] + iT[6] * a[1][5] - iT[18] * a[4][0] - iT[19] * a[7][5] - t[1] + add) >> shift);
+    dst[28] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[5][1] - iT[11] * a[9][1] - iT[13] * a[7][4] + iT[24] * a[2][4] + iT[1] * a[8][2] + iT[10] * a[9][3] + iT[14] * a[6][3] + iT[23] * a[3][2] - iT[2] * a[9][4] - iT[9] * a[8][1] - iT[15] * a[3][1] - iT[22] * a[6][4] + iT[3] * a[9][0] + iT[8] * a[5][0] - iT[16] * a[2][5] + iT[21] * a[7][5] - iT[4] * a[5][5] + iT[7] * a[0][0] + iT[17] * a[4][5] + iT[20] * a[6][5] + iT[5] * a[1][3] + iT[6] * a[0][3] - iT[18] * a[2][3] - iT[19] * a[3][3] + t[1] + add) >> shift);
+    dst[29] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[6][4] + iT[11] * a[3][1] + iT[13] * a[9][4] + iT[24] * a[8][1] - iT[1] * a[7][3] - iT[10] * a[4][2] + iT[14] * a[8][3] + iT[23] * a[1][3] - iT[2] * a[3][5] - iT[9] * a[2][5] + iT[15] * a[1][5] + iT[22] * a[0][5] + iT[3] * a[2][4] + iT[8] * a[3][4] - iT[16] * a[0][4] - iT[21] * a[1][4] + iT[4] * a[4][3] + iT[7] * a[7][2] - iT[17] * a[1][2] - iT[20] * a[8][2] - iT[5] * a[3][0] - iT[6] * a[6][5] - iT[18] * a[8][0] - iT[19] * a[9][5] + t[0] + add) >> shift);
+    dst[30] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[0] * a[7][2] + iT[11] * a[2][2] - iT[13] * a[9][3] - iT[24] * a[5][3] - iT[1] * a[6][0] - iT[10] * a[4][0] + iT[14] * a[5][0] - iT[23] * a[0][5] - iT[2] * a[4][2] - iT[9] * a[6][2] - iT[15] * a[0][3] + iT[22] * a[5][2] + iT[3] * a[2][0] - iT[8] * a[7][0] - iT[16] * a[5][5] - iT[21] * a[9][5] + iT[4] * a[7][1] - iT[7] * a[2][1] + iT[17] * a[9][4] + iT[20] * a[5][4] + iT[5] * a[6][1] + iT[6] * a[4][1] - iT[18] * a[5][1] + iT[19] * a[0][4] + t[0] + add) >> shift);
+    dst[31] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[0] * a[8][5] + iT[11] * a[1][5] - iT[13] * a[4][0] - iT[24] * a[7][5] - iT[1] * a[1][0] - iT[10] * a[8][0] + iT[14] * a[7][0] + iT[23] * a[4][5] - iT[2] * a[8][4] - iT[9] * a[1][4] + iT[15] * a[4][1] + iT[22] * a[7][4] + iT[3] * a[1][1] + iT[8] * a[8][1] - iT[16] * a[7][1] - iT[21] * a[4][4] + iT[4] * a[8][3] + iT[7] * a[1][3] - iT[17] * a[4][2] - iT[20] * a[7][3] - iT[5] * a[1][2] - iT[6] * a[8][2] + iT[18] * a[7][2] + iT[19] * a[4][3] + t[1] + add) >> shift);
 
-    dst[ 2] = Clip3(outputMinimum, outputMaximum, (int)(   iT[ 4] * b[0] + iT[ 9] * b[1] + iT[14] * b[2] + iT[19] * b[3] + iT[24] * b[4] + iT[29] * b[5] + add) >> shift);
-    dst[ 7] = Clip3(outputMinimum, outputMaximum, (int)( - iT[14] * b[0] - iT[29] * b[1] - iT[19] * b[2] - iT[ 4] * b[3] + iT[ 9] * b[4] + iT[24] * b[5] + add) >> shift);
-    dst[12] = Clip3(outputMinimum, outputMaximum, (int)(   iT[24] * b[0] + iT[14] * b[1] - iT[ 9] * b[2] - iT[29] * b[3] - iT[ 4] * b[4] + iT[19] * b[5] + add) >> shift);
-    dst[17] = Clip3(outputMinimum, outputMaximum, (int)( - iT[29] * b[0] + iT[ 4] * b[1] + iT[24] * b[2] - iT[ 9] * b[3] - iT[19] * b[4] + iT[14] * b[5] + add) >> shift);
-    dst[22] = Clip3(outputMinimum, outputMaximum, (int)(   iT[19] * b[0] - iT[24] * b[1] + iT[ 4] * b[2] + iT[14] * b[3] - iT[29] * b[4] + iT[ 9] * b[5] + add) >> shift);
-    dst[27] = Clip3(outputMinimum, outputMaximum, (int)( - iT[ 9] * b[0] + iT[19] * b[1] - iT[29] * b[2] + iT[24] * b[3] - iT[14] * b[4] + iT[ 4] * b[5] + add) >> shift);
+    dst[ 2] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[ 4] * b[0] + iT[ 9] * b[1] + iT[14] * b[2] + iT[19] * b[3] + iT[24] * b[4] + iT[29] * b[5] + add) >> shift);
+    dst[ 7] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[14] * b[0] - iT[29] * b[1] - iT[19] * b[2] - iT[ 4] * b[3] + iT[ 9] * b[4] + iT[24] * b[5] + add) >> shift);
+    dst[12] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[24] * b[0] + iT[14] * b[1] - iT[ 9] * b[2] - iT[29] * b[3] - iT[ 4] * b[4] + iT[19] * b[5] + add) >> shift);
+    dst[17] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[29] * b[0] + iT[ 4] * b[1] + iT[24] * b[2] - iT[ 9] * b[3] - iT[19] * b[4] + iT[14] * b[5] + add) >> shift);
+    dst[22] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[19] * b[0] - iT[24] * b[1] + iT[ 4] * b[2] + iT[14] * b[3] - iT[29] * b[4] + iT[ 9] * b[5] + add) >> shift);
+    dst[27] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[ 9] * b[0] + iT[19] * b[1] - iT[29] * b[2] + iT[24] * b[3] - iT[14] * b[4] + iT[ 4] * b[5] + add) >> shift);
 
-    dst[ 6] = Clip3(outputMinimum, outputMaximum, (int)(   iT[12] * c[0] + iT[25] * c[1] + add) >> shift);
-    dst[19] = Clip3(outputMinimum, outputMaximum, (int)( - iT[25] * c[0] + iT[12] * c[1] + add) >> shift);
-
+    dst[ 6] = Clip3<TCoeff>(outputMinimum, outputMaximum, (   iT[12] * c[0] + iT[25] * c[1] + add) >> shift);
+    dst[19] = Clip3<TCoeff>(outputMinimum, outputMaximum, ( - iT[25] * c[0] + iT[12] * c[1] + add) >> shift);
     src++;
     dst += 32;
   }

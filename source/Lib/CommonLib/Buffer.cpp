@@ -3,7 +3,7 @@
 * and contributor rights, including patent rights, and no such rights are
 * granted under this license.
 *
-* Copyright (c) 2010-2019, ITU/ISO/IEC
+* Copyright (c) 2010-2021, ITU/ISO/IEC
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -42,22 +42,23 @@
 #include "Buffer.h"
 #include "InterpolationFilter.h"
 
-#if JVET_O0070_PROF
-void applyPROFCore(Pel* dst, int dstStride, const Pel* src, int srcStride, int width, int height, const Pel* gradX, const Pel* gradY, int gradStride, const int* dMvX, const int* dMvY, int dMvStride, int shiftNum, Pel offset, const ClpRng& clpRng)
+void applyPROFCore(Pel* dst, int dstStride, const Pel* src, int srcStride, int width, int height, const Pel* gradX, const Pel* gradY, int gradStride, const int* dMvX, const int* dMvY, int dMvStride, const bool& bi, int shiftNum, Pel offset, const ClpRng& clpRng)
 {
   int idx = 0;
-  const int dIshift = 1;
-  const int dIoffset = 1 << (dIshift - 1);
 
+  const int dILimit = 1 << std::max<int>(clpRng.bd + 1, 13);
   for (int h = 0; h < height; h++)
   {
     for (int w = 0; w < width; w++)
     {
       int32_t dI = dMvX[idx] * gradX[w] + dMvY[idx] * gradY[w];
-      dI = (dI + dIoffset) >> dIshift;
-
-      dI = (src[w] + dI + offset) >> shiftNum;
-      dst[w] = (Pel)ClipPel(dI, clpRng);
+      dI = Clip3(-dILimit, dILimit - 1, dI);
+      dst[w] = src[w] + dI;
+      if (!bi)
+      {
+        dst[w] = (dst[w] + offset) >> shiftNum;
+        dst[w] = ClipPel(dst[w], clpRng);
+      }
 
       idx++;
     }
@@ -68,56 +69,6 @@ void applyPROFCore(Pel* dst, int dstStride, const Pel* src, int srcStride, int w
   }
 }
 
-template<bool l1PROFEnabled = true>
-void applyBiPROFCore (Pel* dst, int dstStride, const Pel* src0, const Pel* src1, int srcStride, int width, int height, const Pel* gradX0, const Pel* gradY0, const Pel* gradX1, const Pel* gradY1, int gradStride, const int* dMvX0, const int* dMvY0, const int* dMvX1, const int* dMvY1, int dMvStride, const int8_t w0, const ClpRng& clpRng)
-{
-  int idx = 16;
-  int32_t dI0 = 0;
-  int32_t dI1 = 0;
-  const int dIshift = 1;
-  const int dIoffset = 1 << (dIshift - 1);
-
-  const int clipbd = clpRng.bd;
-  const int shiftNum = std::max<int>(2, (IF_INTERNAL_PREC - clipbd)) + g_GbiLog2WeightBase;
-  const int offset = (1 << (shiftNum - 1)) + (IF_INTERNAL_OFFS << g_GbiLog2WeightBase);
-
-  const int8_t w1 = g_GbiWeightBase - w0;
-
-  for (int h = 0; h < height; h++)
-  {
-    if (!(h & 3)) idx -= 16;
-    idx += 4;
-
-    for (int w = 0; w < width; w++)
-    {
-      if (!(w & 3)) idx -= 4;
-      dI0 = dMvX0[idx] * gradX0[w] + dMvY0[idx] * gradY0[w];
-      dI0 = (dI0 + dIoffset) >> dIshift;
-      if (l1PROFEnabled)
-      {
-        dI1 = dMvX1[idx] * gradX1[w] + dMvY1[idx] * gradY1[w];
-        dI1 = (dI1 + dIoffset) >> dIshift;
-        dst[w] = (Pel)ClipPel(rightShift(((src0[w] + dI0) * w0 + (src1[w] + dI1) * w1 + offset), shiftNum), clpRng);
-      }
-      else
-        dst[w] = (Pel)ClipPel(rightShift(((src0[w] + dI0) * w0 + src1[w] * w1 + offset), shiftNum), clpRng);
-
-      idx++;
-    }
-
-    gradX0 += gradStride;
-    gradY0 += gradStride;
-    if (l1PROFEnabled)
-    {
-      gradX1 += gradStride;
-      gradY1 += gradStride;
-    }
-    dst += dstStride;
-    src0 += srcStride;
-    src1 += srcStride;
-  }
-}
-#endif
 
 template< typename T >
 void addAvgCore( const T* src1, int src1Stride, const T* src2, int src2Stride, T* dest, int dstStride, int width, int height, int rshift, int offset, const ClpRng& clpRng )
@@ -143,57 +94,44 @@ void addBIOAvgCore(const Pel* src0, int src0Stride, const Pel* src1, int src1Str
     for (int x = 0; x < width; x += 4)
     {
       b = tmpx * (gradX0[x] - gradX1[x]) + tmpy * (gradY0[x] - gradY1[x]);
-      b = ((b + 1) >> 1);
-      dst[x] = ClipPel((int16_t)rightShift((src0[x] + src1[x] + b + offset), shift), clpRng);
+      dst[x] = ClipPel(rightShift((src0[x] + src1[x] + b + offset), shift), clpRng);
 
       b = tmpx * (gradX0[x + 1] - gradX1[x + 1]) + tmpy * (gradY0[x + 1] - gradY1[x + 1]);
-      b = ((b + 1) >> 1);
-      dst[x + 1] = ClipPel((int16_t)rightShift((src0[x + 1] + src1[x + 1] + b + offset), shift), clpRng);
+      dst[x + 1] = ClipPel(rightShift((src0[x + 1] + src1[x + 1] + b + offset), shift), clpRng);
 
       b = tmpx * (gradX0[x + 2] - gradX1[x + 2]) + tmpy * (gradY0[x + 2] - gradY1[x + 2]);
-      b = ((b + 1) >> 1);
-      dst[x + 2] = ClipPel((int16_t)rightShift((src0[x + 2] + src1[x + 2] + b + offset), shift), clpRng);
+      dst[x + 2] = ClipPel(rightShift((src0[x + 2] + src1[x + 2] + b + offset), shift), clpRng);
 
       b = tmpx * (gradX0[x + 3] - gradX1[x + 3]) + tmpy * (gradY0[x + 3] - gradY1[x + 3]);
-      b = ((b + 1) >> 1);
-      dst[x + 3] = ClipPel((int16_t)rightShift((src0[x + 3] + src1[x + 3] + b + offset), shift), clpRng);
+      dst[x + 3] = ClipPel(rightShift((src0[x + 3] + src1[x + 3] + b + offset), shift), clpRng);
     }
     dst += dstStride;       src0 += src0Stride;     src1 += src1Stride;
     gradX0 += gradStride; gradX1 += gradStride; gradY0 += gradStride; gradY1 += gradStride;
   }
 }
 
-#if JVET_O0070_PROF
 template<bool PAD = true>
-#endif
 void gradFilterCore(Pel* pSrc, int srcStride, int width, int height, int gradStride, Pel* gradX, Pel* gradY, const int bitDepth)
 {
   Pel* srcTmp = pSrc + srcStride + 1;
   Pel* gradXTmp = gradX + gradStride + 1;
   Pel* gradYTmp = gradY + gradStride + 1;
-  int  shift1 = std::max<int>(6, (bitDepth - 6));
+  int  shift1 = 6;
 
   for (int y = 0; y < (height - 2 * BIO_EXTEND_SIZE); y++)
   {
     for (int x = 0; x < (width - 2 * BIO_EXTEND_SIZE); x++)
     {
-#if JVET_O0570_GRAD_SIMP
       gradYTmp[x] = ( srcTmp[x + srcStride] >> shift1 ) - ( srcTmp[x - srcStride] >> shift1 );
       gradXTmp[x] = ( srcTmp[x + 1] >> shift1 ) - ( srcTmp[x - 1] >> shift1 );
-#else
-      gradYTmp[x] = (srcTmp[x + srcStride] - srcTmp[x - srcStride]) >> shift1;
-      gradXTmp[x] = (srcTmp[x + 1] - srcTmp[x - 1]) >> shift1;
-#endif
     }
     gradXTmp += gradStride;
     gradYTmp += gradStride;
     srcTmp += srcStride;
   }
 
-#if JVET_O0070_PROF
   if (PAD)
   {
-#endif
   gradXTmp = gradX + gradStride + 1;
   gradYTmp = gradY + gradStride + 1;
   for (int y = 0; y < (height - 2 * BIO_EXTEND_SIZE); y++)
@@ -213,16 +151,13 @@ void gradFilterCore(Pel* pSrc, int srcStride, int width, int height, int gradStr
   ::memcpy(gradXTmp + (height - 2 * BIO_EXTEND_SIZE)*gradStride, gradXTmp + (height - 2 * BIO_EXTEND_SIZE - 1)*gradStride, sizeof(Pel)*(width));
   ::memcpy(gradYTmp - gradStride, gradYTmp, sizeof(Pel)*(width));
   ::memcpy(gradYTmp + (height - 2 * BIO_EXTEND_SIZE)*gradStride, gradYTmp + (height - 2 * BIO_EXTEND_SIZE - 1)*gradStride, sizeof(Pel)*(width));
-#if JVET_O0070_PROF
   }
-#endif
 }
 
-#if JVET_O0304_SIMPLIFIED_BDOF
 void calcBIOSumsCore(const Pel* srcY0Tmp, const Pel* srcY1Tmp, Pel* gradX0, Pel* gradX1, Pel* gradY0, Pel* gradY1, int xu, int yu, const int src0Stride, const int src1Stride, const int widthG, const int bitDepth, int* sumAbsGX, int* sumAbsGY, int* sumDIX, int* sumDIY, int* sumSignGY_GX)
 {
-  int shift4 = std::max<int>(4, (bitDepth - 8));
-  int shift5 = std::max<int>(1, (bitDepth - 11));
+  int shift4 = 4;
+  int shift5 = 1;
 
   for (int y = 0; y < 6; y++)
   {
@@ -246,38 +181,7 @@ void calcBIOSumsCore(const Pel* srcY0Tmp, const Pel* srcY1Tmp, Pel* gradX0, Pel*
     gradY1 += widthG;
   }
 }
-#endif
 
-void calcBIOParCore(const Pel* srcY0Temp, const Pel* srcY1Temp, const Pel* gradX0, const Pel* gradX1, const Pel* gradY0, const Pel* gradY1, int* dotProductTemp1, int* dotProductTemp2, int* dotProductTemp3, int* dotProductTemp5, int* dotProductTemp6, const int src0Stride, const int src1Stride, const int gradStride, const int widthG, const int heightG, const int bitDepth)
-{
-  int shift4 = std::max<int>(4, (bitDepth - 8));
-  int shift5 = std::max<int>(1, (bitDepth - 11));
-  for (int y = 0; y < heightG; y++)
-  {
-    for (int x = 0; x < widthG; x++)
-    {
-      int temp = (srcY0Temp[x] >> shift4) - (srcY1Temp[x] >> shift4);
-      int tempX = (gradX0[x] + gradX1[x]) >> shift5;
-      int tempY = (gradY0[x] + gradY1[x]) >> shift5;
-      dotProductTemp1[x] = tempX * tempX;
-      dotProductTemp2[x] = tempX * tempY;
-      dotProductTemp3[x] = -tempX * temp;
-      dotProductTemp5[x] = tempY * tempY;
-      dotProductTemp6[x] = -tempY * temp;
-    }
-    srcY0Temp += src0Stride;
-    srcY1Temp += src1Stride;
-    gradX0 += gradStride;
-    gradX1 += gradStride;
-    gradY0 += gradStride;
-    gradY1 += gradStride;
-    dotProductTemp1 += widthG;
-    dotProductTemp2 += widthG;
-    dotProductTemp3 += widthG;
-    dotProductTemp5 += widthG;
-    dotProductTemp6 += widthG;
-  }
-}
 
 void calcBlkGradientCore(int sx, int sy, int     *arraysGx2, int     *arraysGxGy, int     *arraysGxdI, int     *arraysGy2, int     *arraysGydI, int     &sGx2, int     &sGy2, int     &sGxGy, int     &sGxdI, int     &sGydI, int width, int height, int unitSize)
 {
@@ -312,12 +216,12 @@ void calcBlkGradientCore(int sx, int sy, int     *arraysGx2, int     *arraysGxGy
   }
 }
 
-#if ENABLE_SIMD_OPT_GBI
-void removeWeightHighFreq(int16_t* dst, int dstStride, const int16_t* src, int srcStride, int width, int height, int shift, int gbiWeight)
+#if ENABLE_SIMD_OPT_BCW
+void removeWeightHighFreq(int16_t* dst, int dstStride, const int16_t* src, int srcStride, int width, int height, int shift, int bcwWeight)
 {
-  int normalizer = ((1 << 16) + (gbiWeight > 0 ? (gbiWeight >> 1) : -(gbiWeight >> 1))) / gbiWeight;
-  int weight0 = normalizer << g_GbiLog2WeightBase;
-  int weight1 = (g_GbiWeightBase - gbiWeight)*normalizer;
+  int normalizer = ((1 << 16) + (bcwWeight > 0 ? (bcwWeight >> 1) : -(bcwWeight >> 1))) / bcwWeight;
+  int weight0 = normalizer << g_BcwLog2WeightBase;
+  int weight1 = (g_BcwWeightBase - bcwWeight)*normalizer;
 #define REM_HF_INC  \
   src += srcStride; \
   dst += dstStride; \
@@ -345,6 +249,40 @@ void removeHighFreq(int16_t* dst, int dstStride, const int16_t* src, int srcStri
 #undef REM_HF_OP
 #undef REM_HF_OP_CLIP
 }
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+void removeWeightHighFreq_HBD(Pel* dst, int dstStride, const Pel* src, int srcStride, int width, int height, int shift, int bcwWeight)
+{
+  Intermediate_Int normalizer = ((1 << 16) + (bcwWeight > 0 ? (bcwWeight >> 1) : -(bcwWeight >> 1))) / bcwWeight;
+  Intermediate_Int weight0 = normalizer << g_BcwLog2WeightBase;
+  Intermediate_Int weight1 = (g_BcwWeightBase - bcwWeight)*normalizer;
+#define REM_HF_INC  \
+  src += srcStride; \
+  dst += dstStride; \
+
+#define REM_HF_OP( ADDR )      dst[ADDR] =             (Pel)((dst[ADDR]*weight0 - src[ADDR]*weight1 + (1<<15))>>16)
+
+  SIZE_AWARE_PER_EL_OP(REM_HF_OP, REM_HF_INC);
+
+#undef REM_HF_INC
+#undef REM_HF_OP
+#undef REM_HF_OP_CLIP
+}
+
+void removeHighFreq_HBD(Pel* dst, int dstStride, const Pel* src, int srcStride, int width, int height)
+{
+#define REM_HF_INC  \
+  src += srcStride; \
+  dst += dstStride; \
+
+#define REM_HF_OP( ADDR )      dst[ADDR] =             2 * dst[ADDR] - src[ADDR]
+
+  SIZE_AWARE_PER_EL_OP(REM_HF_OP, REM_HF_INC);
+
+#undef REM_HF_INC
+#undef REM_HF_OP
+#undef REM_HF_OP_CLIP
+}
+#endif
 #endif
 
 template<typename T>
@@ -390,29 +328,27 @@ PelBufferOps::PelBufferOps()
 
   addBIOAvg4      = addBIOAvgCore;
   bioGradFilter   = gradFilterCore;
-#if !JVET_O0304_SIMPLIFIED_BDOF
-  calcBIOPar = calcBIOParCore;
-  calcBlkGradient = calcBlkGradientCore;
-#else
   calcBIOSums = calcBIOSumsCore;
-#endif
 
   copyBuffer = copyBufferCore;
   padding = paddingCore;
-#if ENABLE_SIMD_OPT_GBI
+#if ENABLE_SIMD_OPT_BCW
+#if RExt__HIGH_BIT_DEPTH_SUPPORT
+  removeWeightHighFreq8 = removeWeightHighFreq_HBD;
+  removeWeightHighFreq4 = removeWeightHighFreq_HBD;
+  removeHighFreq8 = removeHighFreq_HBD;
+  removeHighFreq4 = removeHighFreq_HBD;
+#else
   removeWeightHighFreq8 = removeWeightHighFreq;
   removeWeightHighFreq4 = removeWeightHighFreq;
   removeHighFreq8 = removeHighFreq;
   removeHighFreq4 = removeHighFreq;
 #endif
+#endif
 
-#if JVET_O0070_PROF
   profGradFilter = gradFilterCore <false>;
   applyPROF      = applyPROFCore;
-  applyBiPROF[1] = applyBiPROFCore;
-  applyBiPROF[0] = applyBiPROFCore <false>;
   roundIntVector = nullptr;
-#endif
 }
 
 PelBufferOps g_pelBufOP = PelBufferOps();
@@ -452,11 +388,11 @@ void paddingCore(Pel *ptr, int stride, int width, int height, int padSize)
   }
 }
 template<>
-void AreaBuf<Pel>::addWeightedAvg(const AreaBuf<const Pel> &other1, const AreaBuf<const Pel> &other2, const ClpRng& clpRng, const int8_t gbiIdx)
+void AreaBuf<Pel>::addWeightedAvg(const AreaBuf<const Pel> &other1, const AreaBuf<const Pel> &other2, const ClpRng& clpRng, const int8_t bcwIdx)
 {
-  const int8_t w0 = getGbiWeight(gbiIdx, REF_PIC_LIST_0);
-  const int8_t w1 = getGbiWeight(gbiIdx, REF_PIC_LIST_1);
-  const int8_t log2WeightBase = g_GbiLog2WeightBase;
+  const int8_t w0 = getBcwWeight(bcwIdx, REF_PIC_LIST_0);
+  const int8_t w1 = getBcwWeight(bcwIdx, REF_PIC_LIST_1);
+  const int8_t log2WeightBase = g_BcwLog2WeightBase;
 
   const Pel* src0 = other1.buf;
   const Pel* src2 = other2.buf;
@@ -466,7 +402,7 @@ void AreaBuf<Pel>::addWeightedAvg(const AreaBuf<const Pel> &other1, const AreaBu
   const unsigned src2Stride = other2.stride;
   const unsigned destStride = stride;
   const int clipbd = clpRng.bd;
-  const int shiftNum = std::max<int>(2, (IF_INTERNAL_PREC - clipbd)) + log2WeightBase;
+  const int shiftNum = IF_INTERNAL_FRAC_BITS(clipbd) + log2WeightBase;
   const int offset = (1 << (shiftNum - 1)) + (IF_INTERNAL_OFFS << log2WeightBase);
 
 #define ADD_AVG_OP( ADDR ) dest[ADDR] = ClipPel( rightShift( ( src0[ADDR]*w0 + src2[ADDR]*w1 + offset ), shiftNum ), clpRng )
@@ -486,15 +422,15 @@ void AreaBuf<Pel>::rspSignal(std::vector<Pel>& pLUT)
 {
   Pel* dst = buf;
   Pel* src = buf;
-    for (unsigned y = 0; y < height; y++)
+  for (unsigned y = 0; y < height; y++)
+  {
+    for (unsigned x = 0; x < width; x++)
     {
-      for (unsigned x = 0; x < width; x++)
-      {
-        dst[x] = pLUT[src[x]];
-      }
-      dst += stride;
-      src += stride;
+      dst[x] = pLUT[src[x]];
     }
+    dst += stride;
+    src += stride;
+  }
 }
 
 template<>
@@ -549,6 +485,61 @@ void AreaBuf<Pel>::scaleSignal(const int scale, const bool dir, const ClpRng& cl
 }
 
 template<>
+void AreaBuf<Pel>::applyLumaCTI(std::vector<Pel>& pLUTY)
+{
+  Pel* dst = buf;
+  Pel* src = buf;
+  for (unsigned y = 0; y < height; y++)
+  {
+    for (unsigned x = 0; x < width; x++)
+    {
+      dst[x] = pLUTY[src[x]];
+    }
+    dst += stride;
+    src += stride;
+  }
+}
+
+template<>
+void AreaBuf<Pel>::applyChromaCTI(Pel* bufY, int strideY, std::vector<Pel>& pLUTC, int bitDepth, ChromaFormat chrFormat, bool fwdMap)
+{
+  int range = 1 << bitDepth;
+  int offset = range / 2;
+  int sx = 1 << getComponentScaleX(COMPONENT_Cb, chrFormat);
+  int sy = 1 << getComponentScaleY(COMPONENT_Cb, chrFormat);
+
+  Pel* dst = buf;
+  Pel* src = buf;
+  if (fwdMap)
+  {
+    for (unsigned y = 0; y < height; y++)
+    {
+      for (unsigned x = 0; x < width; x++)
+      {
+        int pelY = bufY[sy * y * strideY + sx * x];
+        double scale = (double)pLUTC[pelY] / (double)(1 << CSCALE_FP_PREC);
+        dst[x] = Clip3((Pel)0, (Pel)(range - 1), (Pel)(offset + (double)(src[x] - offset) / scale + .5));
+      }
+      dst += stride;
+      src += stride;
+    }
+  }
+  else
+  {
+    for (unsigned y = 0; y < height; y++)
+    {
+      for (unsigned x = 0; x < width; x++)
+      {
+        int pelY = bufY[sy * y * strideY + sx * x];
+        int scal = pLUTC[pelY];
+        dst[x] = Clip3(0, range - 1, ((offset << CSCALE_FP_PREC) + (src[x] - offset) * scal + (1 << (CSCALE_FP_PREC - 1))) >> CSCALE_FP_PREC);
+      }
+      dst += stride;
+      src += stride;
+    }
+  }
+}
+template<>
 void AreaBuf<Pel>::addAvg( const AreaBuf<const Pel> &other1, const AreaBuf<const Pel> &other2, const ClpRng& clpRng)
 {
   const Pel* src0 = other1.buf;
@@ -559,7 +550,7 @@ void AreaBuf<Pel>::addAvg( const AreaBuf<const Pel> &other1, const AreaBuf<const
   const unsigned src2Stride = other2.stride;
   const unsigned destStride =        stride;
   const int     clipbd      = clpRng.bd;
-  const int     shiftNum    = std::max<int>(2, (IF_INTERNAL_PREC - clipbd)) + 1;
+  const int shiftNum = IF_INTERNAL_FRAC_BITS(clipbd) + 1;
   const int     offset      = (1 << (shiftNum - 1)) + 2 * IF_INTERNAL_OFFS;
 
 #if ENABLE_SIMD_OPT_BUFFER && defined(TARGET_SIMD_X86)
@@ -594,7 +585,7 @@ void AreaBuf<Pel>::toLast( const ClpRng& clpRng )
   const uint32_t srcStride = stride;
 
   const int  clipbd    = clpRng.bd;
-  const int  shiftNum  = std::max<int>(2, (IF_INTERNAL_PREC - clipbd));
+  const int shiftNum = IF_INTERNAL_FRAC_BITS(clipbd);
   const int  offset    = ( 1 << ( shiftNum - 1 ) ) + IF_INTERNAL_OFFS;
 
   if (width == 1)
@@ -655,6 +646,36 @@ void AreaBuf<Pel>::copyClip( const AreaBuf<const Pel> &src, const ClpRng& clpRng
 
 #undef RECO_OP
 #undef RECO_INC
+  }
+}
+
+template<>
+void AreaBuf<Pel>::roundToOutputBitdepth( const AreaBuf<const Pel> &src, const ClpRng& clpRng )
+{
+  const Pel* srcp = src.buf;
+        Pel* dest =     buf;
+  const unsigned srcStride  = src.stride;
+  const unsigned destStride = stride;
+
+  const int32_t clipbd            = clpRng.bd;
+  const int32_t shiftDefault      = IF_INTERNAL_FRAC_BITS(clipbd);
+  const int32_t offsetDefault     = (1<<(shiftDefault-1)) + IF_INTERNAL_OFFS;
+
+  if( width == 1 )
+  {
+    THROW( "Blocks of width = 1 not supported" );
+  }
+  else
+  {
+#define RND_OP( ADDR ) dest[ADDR] = ClipPel( rightShift( srcp[ADDR] + offsetDefault, shiftDefault), clpRng )
+#define RND_INC        \
+    srcp += srcStride;  \
+    dest += destStride; \
+
+    SIZE_AWARE_PER_EL_OP( RND_OP, RND_INC );
+
+#undef RND_OP
+#undef RND_INC
   }
 }
 
@@ -883,3 +904,80 @@ const CPelUnitBuf PelStorage::getBuf( const UnitArea &unit ) const
   return ( chromaFormat == CHROMA_400 ) ? CPelUnitBuf( chromaFormat, getBuf( unit.Y() ) ) : CPelUnitBuf( chromaFormat, getBuf( unit.Y() ), getBuf( unit.Cb() ), getBuf( unit.Cr() ) );
 }
 
+template<>
+void UnitBuf<Pel>::colorSpaceConvert(const UnitBuf<Pel> &other, const bool forward, const ClpRng& clpRng)
+{
+  const Pel* pOrg0 = bufs[COMPONENT_Y].buf;
+  const Pel* pOrg1 = bufs[COMPONENT_Cb].buf;
+  const Pel* pOrg2 = bufs[COMPONENT_Cr].buf;
+  const int  strideOrg = bufs[COMPONENT_Y].stride;
+
+  Pel* pDst0 = other.bufs[COMPONENT_Y].buf;
+  Pel* pDst1 = other.bufs[COMPONENT_Cb].buf;
+  Pel* pDst2 = other.bufs[COMPONENT_Cr].buf;
+  const int strideDst = other.bufs[COMPONENT_Y].stride;
+
+  int width = bufs[COMPONENT_Y].width;
+  int height = bufs[COMPONENT_Y].height;
+  int maxAbsclipBD = (1 << (clpRng.bd + 1)) - 1;
+  int r, g, b;
+  int y0, cg, co;
+
+  CHECK(bufs[COMPONENT_Y].stride != bufs[COMPONENT_Cb].stride || bufs[COMPONENT_Y].stride != bufs[COMPONENT_Cr].stride, "unequal stride for 444 content");
+  CHECK(other.bufs[COMPONENT_Y].stride != other.bufs[COMPONENT_Cb].stride || other.bufs[COMPONENT_Y].stride != other.bufs[COMPONENT_Cr].stride, "unequal stride for 444 content");
+  CHECK(bufs[COMPONENT_Y].width != other.bufs[COMPONENT_Y].width || bufs[COMPONENT_Y].height != other.bufs[COMPONENT_Y].height, "unequal block size")
+
+  if (forward)
+  {
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width; x++)
+      {
+        r = pOrg2[x];
+        g = pOrg0[x];
+        b = pOrg1[x];
+
+        co       = r - b;
+        int t    = b + (co >> 1);
+        cg       = g - t;
+        pDst0[x] = t + (cg >> 1);
+        pDst1[x] = cg;
+        pDst2[x] = co;
+      }
+      pOrg0 += strideOrg;
+      pOrg1 += strideOrg;
+      pOrg2 += strideOrg;
+      pDst0 += strideDst;
+      pDst1 += strideDst;
+      pDst2 += strideDst;
+    }
+  }
+  else
+  {
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width; x++)
+      {
+        y0 = pOrg0[x];
+        cg = pOrg1[x];
+        co = pOrg2[x];
+
+        y0 = Clip3((-maxAbsclipBD - 1), maxAbsclipBD, y0);
+        cg = Clip3((-maxAbsclipBD - 1), maxAbsclipBD, cg);
+        co = Clip3((-maxAbsclipBD - 1), maxAbsclipBD, co);
+
+        int t    = y0 - (cg >> 1);
+        pDst0[x] = cg + t;
+        pDst1[x] = t - (co >> 1);
+        pDst2[x] = co + pDst1[x];
+      }
+
+      pOrg0 += strideOrg;
+      pOrg1 += strideOrg;
+      pOrg2 += strideOrg;
+      pDst0 += strideDst;
+      pDst1 += strideDst;
+      pDst2 += strideDst;
+    }
+  }
+}

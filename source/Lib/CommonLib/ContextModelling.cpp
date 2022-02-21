@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,58 +40,64 @@
 #include "CodingStructure.h"
 #include "Picture.h"
 
-
-CoeffCodingContext::CoeffCodingContext( const TransformUnit& tu, ComponentID component, bool signHide, bool bdpcm )
-  : m_compID                    (component)
-  , m_chType                    (toChannelType(m_compID))
-  , m_width                     (tu.block(m_compID).width)
-  , m_height                    (tu.block(m_compID).height)
-  , m_log2CGWidth               ( g_log2SbbSize[ floorLog2(m_width) ][ floorLog2(m_height) ][0] )
-  , m_log2CGHeight              ( g_log2SbbSize[ floorLog2(m_width) ][ floorLog2(m_height) ][1] )
-  , m_log2CGSize                (m_log2CGWidth + m_log2CGHeight)
+CoeffCodingContext::CoeffCodingContext(const TransformUnit &tu, ComponentID component, bool signHide, bool bdpcm)
+  : m_compID(component)
+  , m_chType(toChannelType(m_compID))
+  , m_width(tu.block(m_compID).width)
+  , m_height(tu.block(m_compID).height)
+  , m_log2CGWidth(g_log2SbbSize[floorLog2(m_width)][floorLog2(m_height)][0])
+  , m_log2CGHeight(g_log2SbbSize[floorLog2(m_width)][floorLog2(m_height)][1])
+  , m_log2CGSize(m_log2CGWidth + m_log2CGHeight)
   , m_widthInGroups(std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_width) >> m_log2CGWidth)
   , m_heightInGroups(std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_height) >> m_log2CGHeight)
-  , m_log2BlockWidth            ((unsigned)floorLog2(m_width))
-  , m_log2BlockHeight           ((unsigned)floorLog2(m_height))
-  , m_maxNumCoeff               (m_width * m_height)
-  , m_signHiding                (signHide)
-  , m_extendedPrecision         (tu.cs->sps->getSpsRangeExtension().getExtendedPrecisionProcessingFlag())
-  , m_maxLog2TrDynamicRange     (tu.cs->sps->getMaxLog2TrDynamicRange(m_chType))
-  , m_scanType                  (SCAN_DIAG)
-  , m_scan                      (g_scanOrder     [SCAN_GROUPED_4x4][m_scanType][gp_sizeIdxInfo->idxFrom(m_width        )][gp_sizeIdxInfo->idxFrom(m_height        )])
-  , m_scanCG                    (g_scanOrder     [SCAN_UNGROUPED  ][m_scanType][gp_sizeIdxInfo->idxFrom(m_widthInGroups)][gp_sizeIdxInfo->idxFrom(m_heightInGroups)])
-  , m_CtxSetLastX               (Ctx::LastX[m_chType])
-  , m_CtxSetLastY               (Ctx::LastY[m_chType])
-  , m_maxLastPosX(g_uiGroupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_width) - 1])
-  , m_maxLastPosY(g_uiGroupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_height) - 1])
-  , m_lastOffsetX               (0)
-  , m_lastOffsetY               (0)
-  , m_lastShiftX                (0)
-  , m_lastShiftY                (0)
-  , m_TrafoBypass               (tu.cs->sps->getSpsRangeExtension().getTransformSkipContextEnabledFlag() &&  (tu.cu->transQuantBypass || tu.mtsIdx==MTS_SKIP))
-  , m_scanPosLast               (-1)
-  , m_subSetId                  (-1)
-  , m_subSetPos                 (-1)
-  , m_subSetPosX                (-1)
-  , m_subSetPosY                (-1)
-  , m_minSubPos                 (-1)
-  , m_maxSubPos                 (-1)
-  , m_sigGroupCtxId             (-1)
-  , m_tmplCpSum1                (-1)
-  , m_tmplCpDiag                (-1)
-  , m_sigFlagCtxSet             { Ctx::SigFlag[m_chType], Ctx::SigFlag[m_chType+2], Ctx::SigFlag[m_chType+4] }
-  , m_parFlagCtxSet             ( Ctx::ParFlag[m_chType] )
-  , m_gtxFlagCtxSet             { Ctx::GtxFlag[m_chType], Ctx::GtxFlag[m_chType+2] }
-  , m_sigGroupCtxIdTS           (-1)
-  , m_tsSigFlagCtxSet           ( Ctx::TsSigFlag )
-  , m_tsParFlagCtxSet           ( Ctx::TsParFlag )
-  , m_tsGtxFlagCtxSet           ( Ctx::TsGtxFlag )
-#if JVET_O0122_TS_SIGN_LEVEL
-  , m_tsLrg1FlagCtxSet          (Ctx::TsLrg1Flag)
-  , m_tsSignFlagCtxSet          (Ctx::TsResidualSign)
+  , m_log2BlockWidth((unsigned) floorLog2(m_width))
+  , m_log2BlockHeight((unsigned) floorLog2(m_height))
+  , m_maxNumCoeff(m_width * m_height)
+  , m_signHiding(signHide)
+#if JVET_W0178_CONSTRAINTS_ON_REXT_TOOLS
+  , m_extendedPrecision(tu.cs->sps->getSpsRangeExtension().getExtendedPrecisionProcessingFlag())
+#else
+  , m_extendedPrecision(tu.cs->sps->getSpsRangeExtension().getExtendedPrecisionProcessingFlag() && tu.cs->sps->getBitDepth( m_chType ) > 10)
 #endif
-  , m_sigCoeffGroupFlag         ()
-  , m_bdpcm                     (bdpcm)
+  , m_maxLog2TrDynamicRange(tu.cs->sps->getMaxLog2TrDynamicRange(m_chType))
+  , m_scanType(SCAN_DIAG)
+  , m_scan(
+      g_scanOrder[SCAN_GROUPED_4x4][m_scanType][gp_sizeIdxInfo->idxFrom(m_width)][gp_sizeIdxInfo->idxFrom(m_height)])
+  , m_scanCG(g_scanOrder[SCAN_UNGROUPED][m_scanType][gp_sizeIdxInfo->idxFrom(m_widthInGroups)]
+                        [gp_sizeIdxInfo->idxFrom(m_heightInGroups)])
+  , m_CtxSetLastX(Ctx::LastX[m_chType])
+  , m_CtxSetLastY(Ctx::LastY[m_chType])
+  , m_maxLastPosX(g_groupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_width) - 1])
+  , m_maxLastPosY(g_groupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, m_height) - 1])
+  , m_lastOffsetX(0)
+  , m_lastOffsetY(0)
+  , m_lastShiftX(0)
+  , m_lastShiftY(0)
+  , m_TrafoBypass(tu.cs->sps->getSpsRangeExtension().getTransformSkipContextEnabledFlag()
+                  && (tu.mtsIdx[m_compID] == MTS_SKIP))
+  , m_minCoeff(-(1 << tu.cs->sps->getMaxLog2TrDynamicRange(m_chType)))
+  , m_maxCoeff((1 << tu.cs->sps->getMaxLog2TrDynamicRange(m_chType)) - 1)
+  , m_scanPosLast(-1)
+  , m_subSetId(-1)
+  , m_subSetPos(-1)
+  , m_subSetPosX(-1)
+  , m_subSetPosY(-1)
+  , m_minSubPos(-1)
+  , m_maxSubPos(-1)
+  , m_sigGroupCtxId(-1)
+  , m_tmplCpSum1(-1)
+  , m_tmplCpDiag(-1)
+  , m_sigFlagCtxSet{ Ctx::SigFlag[m_chType], Ctx::SigFlag[m_chType + 2], Ctx::SigFlag[m_chType + 4] }
+  , m_parFlagCtxSet(Ctx::ParFlag[m_chType])
+  , m_gtxFlagCtxSet{ Ctx::GtxFlag[m_chType], Ctx::GtxFlag[m_chType + 2] }
+  , m_sigGroupCtxIdTS(-1)
+  , m_tsSigFlagCtxSet(Ctx::TsSigFlag)
+  , m_tsParFlagCtxSet(Ctx::TsParFlag)
+  , m_tsGtxFlagCtxSet(Ctx::TsGtxFlag)
+  , m_tsLrg1FlagCtxSet(Ctx::TsLrg1Flag)
+  , m_tsSignFlagCtxSet(Ctx::TsResidualSign)
+  , m_sigCoeffGroupFlag()
+  , m_bdpcm(bdpcm)
 {
   // LOGTODO
   unsigned log2sizeX = m_log2BlockWidth;
@@ -108,6 +114,19 @@ CoeffCodingContext::CoeffCodingContext( const TransformUnit& tu, ComponentID com
     const_cast<int&>(m_lastOffsetY) = prefix_ctx[ log2sizeY ];;
     const_cast<int&>(m_lastShiftX)  = (log2sizeX + 1) >> 2;
     const_cast<int&>(m_lastShiftY)  = (log2sizeY + 1) >> 2;
+  }
+
+  m_cctxBaseLevel = 4; // default value for RRC rice derivation in VVCv1, is updated for extended RRC rice derivation
+  m_histValue = 0;  // default value for RRC rice derivation in VVCv1, is updated for history-based extention of RRC rice derivation
+  m_updateHist = 0;  // default value for RRC rice derivation (history update is disabled), is updated for history-based extention of RRC rice derivation
+
+  if (tu.cs->sps->getSpsRangeExtension().getRrcRiceExtensionEnableFlag())
+  {
+    deriveRiceRRC = &CoeffCodingContext::deriveRiceExt;
+  }
+  else
+  {
+    deriveRiceRRC = &CoeffCodingContext::deriveRice;
   }
 }
 
@@ -134,13 +153,12 @@ void CoeffCodingContext::initSubblock( int SubsetId, bool sigGroupFlag )
 }
 
 
-#if JVET_O0050_LOCAL_DUAL_TREE
 unsigned DeriveCtx::CtxModeConsFlag( const CodingStructure& cs, Partitioner& partitioner )
 {
   assert( partitioner.chType == CHANNEL_TYPE_LUMA );
   const Position pos = partitioner.currArea().blocks[partitioner.chType];
   const unsigned curSliceIdx = cs.slice->getIndependentSliceIdx();
-  const unsigned curTileIdx = cs.picture->brickMap->getBrickIdxRsMap( partitioner.currArea().lumaPos() );
+  const unsigned curTileIdx = cs.pps->getTileIdx( partitioner.currArea().lumaPos() );
 
   const CodingUnit* cuLeft = cs.getCURestricted( pos.offset( -1, 0 ), pos, curSliceIdx, curTileIdx, partitioner.chType );
   const CodingUnit* cuAbove = cs.getCURestricted( pos.offset( 0, -1 ), pos, curSliceIdx, curTileIdx, partitioner.chType );
@@ -148,14 +166,13 @@ unsigned DeriveCtx::CtxModeConsFlag( const CodingStructure& cs, Partitioner& par
   unsigned ctxId = ((cuAbove && cuAbove->predMode == MODE_INTRA) || (cuLeft && cuLeft->predMode == MODE_INTRA)) ? 1 : 0;
   return ctxId;
 }
-#endif
 
 
 void DeriveCtx::CtxSplit( const CodingStructure& cs, Partitioner& partitioner, unsigned& ctxSpl, unsigned& ctxQt, unsigned& ctxHv, unsigned& ctxHorBt, unsigned& ctxVerBt, bool* _canSplit /*= nullptr */ )
 {
   const Position pos         = partitioner.currArea().blocks[partitioner.chType];
   const unsigned curSliceIdx = cs.slice->getIndependentSliceIdx();
-  const unsigned curTileIdx  = cs.picture->brickMap->getBrickIdxRsMap( partitioner.currArea().lumaPos() );
+  const unsigned curTileIdx  = cs.pps->getTileIdx( partitioner.currArea().lumaPos() );
 
   // get left depth
   const CodingUnit* cuLeft = cs.getCURestricted( pos.offset( -1, 0 ), pos, curSliceIdx, curTileIdx, partitioner.chType );
@@ -194,13 +211,31 @@ void DeriveCtx::CtxSplit( const CodingStructure& cs, Partitioner& partitioner, u
   }
 
   unsigned numSplit = 0;
-  if( canSplit[1] ) numSplit += 2;
-  if( canSplit[2] ) numSplit += 1;
-  if( canSplit[3] ) numSplit += 1;
-  if( canSplit[4] ) numSplit += 1;
-  if( canSplit[5] ) numSplit += 1;
+  if (canSplit[1])
+  {
+    numSplit += 2;
+  }
+  if (canSplit[2])
+  {
+    numSplit += 1;
+  }
+  if (canSplit[3])
+  {
+    numSplit += 1;
+  }
+  if (canSplit[4])
+  {
+    numSplit += 1;
+  }
+  if (canSplit[5])
+  {
+    numSplit += 1;
+  }
 
-  if( numSplit > 0 ) numSplit--;
+  if (numSplit > 0)
+  {
+    numSplit--;
+  }
 
   ctxSpl += 3 * ( numSplit >> 1 );
 
@@ -229,9 +264,18 @@ void DeriveCtx::CtxSplit( const CodingStructure& cs, Partitioner& partitioner, u
     const unsigned depAbove     = area.width / wAbove;
     const unsigned depLeft      = area.height / hLeft;
 
-    if( depAbove == depLeft || !cuLeft || !cuAbove ) ctxHv = 0;
-    else if( depAbove < depLeft ) ctxHv = 1;
-    else ctxHv = 2;
+    if (depAbove == depLeft || !cuLeft || !cuAbove)
+    {
+      ctxHv = 0;
+    }
+    else if (depAbove < depLeft)
+    {
+      ctxHv = 1;
+    }
+    else
+    {
+      ctxHv = 2;
+    }
   }
   else if( numVer < numHor )
   {
@@ -249,11 +293,7 @@ void DeriveCtx::CtxSplit( const CodingStructure& cs, Partitioner& partitioner, u
   ctxVerBt = ( partitioner.currMtDepth <= 1 ? 3 : 2 );
 }
 
-#if JVET_O0193_REMOVE_TR_DEPTH_IN_CBF_CTX
 unsigned DeriveCtx::CtxQtCbf( const ComponentID compID, const bool prevCbf, const int ispIdx )
-#else
-unsigned DeriveCtx::CtxQtCbf( const ComponentID compID, const unsigned trDepth, const bool prevCbf, const int ispIdx )
-#endif
 {
   if( ispIdx && isLuma( compID ) )
   {
@@ -263,18 +303,7 @@ unsigned DeriveCtx::CtxQtCbf( const ComponentID compID, const unsigned trDepth, 
   {
     return ( prevCbf ? 1 : 0 );
   }
-#if JVET_O0193_REMOVE_TR_DEPTH_IN_CBF_CTX
   return 0;
-#else
-  if( isChroma( compID ) )
-  {
-    return ( trDepth == 0 ? 0 : 1 );
-  }
-  else
-  {
-    return ( trDepth == 0 ? 1 : 0 );
-  }
-#endif
 }
 
 unsigned DeriveCtx::CtxInterDir( const PredictionUnit& pu )
@@ -295,6 +324,7 @@ unsigned DeriveCtx::CtxAffineFlag( const CodingUnit& cu )
 
   return ctxId;
 }
+
 unsigned DeriveCtx::CtxSkipFlag( const CodingUnit& cu )
 {
   const CodingStructure *cs = cu.cs;
@@ -310,8 +340,6 @@ unsigned DeriveCtx::CtxSkipFlag( const CodingUnit& cu )
 
   return ctxId;
 }
-
-
 
 unsigned DeriveCtx::CtxPredModeFlag( const CodingUnit& cu )
 {
@@ -339,13 +367,11 @@ unsigned DeriveCtx::CtxIBCFlag(const CodingUnit& cu)
 void MergeCtx::setMergeInfo( PredictionUnit& pu, int candIdx )
 {
   CHECK( candIdx >= numValidMergeCand, "Merge candidate does not exist" );
-  pu.regularMergeFlag        = !(pu.mhIntraFlag || pu.cu->triangle);
+  pu.regularMergeFlag        = !(pu.ciipFlag || pu.cu->geoFlag);
   pu.mergeFlag               = true;
   pu.mmvdMergeFlag = false;
   pu.interDir                = interDirNeighbours[candIdx];
-#if JVET_O0057_ALTHPELIF
-  pu.cu->imv = (!pu.cu->triangle && useAltHpelIf[candIdx]) ? IMV_HPEL : 0;
-#endif
+  pu.cu->imv = (!pu.cu->geoFlag && useAltHpelIf[candIdx]) ? IMV_HPEL : 0;
   pu.mergeIdx                = candIdx;
   pu.mergeType               = mrgTypeNeighbours[candIdx];
   pu.mv     [REF_PIC_LIST_0] = mvFieldNeighbours[(candIdx << 1) + 0].mv;
@@ -358,19 +384,37 @@ void MergeCtx::setMergeInfo( PredictionUnit& pu, int candIdx )
   pu.mvpIdx [REF_PIC_LIST_1] = NOT_VALID;
   pu.mvpNum [REF_PIC_LIST_0] = NOT_VALID;
   pu.mvpNum [REF_PIC_LIST_1] = NOT_VALID;
+#if GDR_ENABLED
+  CodingStructure &cs = *pu.cs;
+  const bool isEncodeGdrClean = cs.sps->getGDREnabledFlag() && cs.pcv->isEncoder && ((cs.picHeader->getInGdrInterval() && cs.isClean(pu.Y().topRight(), CHANNEL_TYPE_LUMA)) || (cs.picHeader->getNumVerVirtualBoundaries() == 0));
+
+  if (isEncodeGdrClean)
+  {
+    Mv mv0 = pu.mv[REF_PIC_LIST_0];
+    Mv mv1 = pu.mv[REF_PIC_LIST_1];
+
+    int refIdx0 = pu.refIdx[REF_PIC_LIST_0];
+    int refIdx1 = pu.refIdx[REF_PIC_LIST_1];
+
+    pu.mvSolid[REF_PIC_LIST_0] = mvSolid[(candIdx << 1) + 0];
+    pu.mvSolid[REF_PIC_LIST_1] = mvSolid[(candIdx << 1) + 1];
+    pu.mvValid[REF_PIC_LIST_0] = cs.isClean(pu.Y().topRight(), mv0, REF_PIC_LIST_0, refIdx0);
+    pu.mvValid[REF_PIC_LIST_1] = cs.isClean(pu.Y().topRight(), mv1, REF_PIC_LIST_1, refIdx1);
+  }
+#endif
+
   if (CU::isIBC(*pu.cu))
   {
     pu.bv = pu.mv[REF_PIC_LIST_0];
     pu.bv.changePrecision(MV_PRECISION_INTERNAL, MV_PRECISION_INT); // used for only integer resolution
-#if JVET_O0057_ALTHPELIF
     pu.cu->imv = pu.cu->imv == IMV_HPEL ? 0 : pu.cu->imv;
-#endif
   }
-  pu.cu->GBiIdx = ( interDirNeighbours[candIdx] == 3 ) ? GBiIdx[candIdx] : GBI_DEFAULT;
+  pu.cu->BcwIdx = ( interDirNeighbours[candIdx] == 3 ) ? BcwIdx[candIdx] : BCW_DEFAULT;
 
   PU::restrictBiPredMergeCandsOne(pu);
   pu.mmvdEncOptMode = 0;
 }
+
 void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
 {
   const Slice &slice = *pu.cs->slice;
@@ -383,6 +427,11 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
   int fPosPosition = 0;
   Mv tempMv[2];
 
+#if GDR_ENABLED
+  const CodingStructure &cs = *pu.cs;
+  const bool isEncodeGdrClean = cs.sps->getGDREnabledFlag() && cs.pcv->isEncoder && ((cs.picHeader->getInGdrInterval() && cs.isClean(pu.Y().topRight(), CHANNEL_TYPE_LUMA)) || (cs.picHeader->getNumVerVirtualBoundaries() == 0));
+#endif
+
   tempIdx = candIdx;
   fPosGroup = tempIdx / (MMVD_BASE_MV_NUM * MMVD_MAX_REFINE_NUM);
   tempIdx = tempIdx - fPosGroup * (MMVD_BASE_MV_NUM * MMVD_MAX_REFINE_NUM);
@@ -391,7 +440,7 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
   fPosStep = tempIdx / 4;
   fPosPosition = tempIdx - fPosStep * (4);
   int offset = refMvdCands[fPosStep];
-  if ( pu.cu->slice->getDisFracMMVD() )
+  if ( pu.cu->slice->getPicHeader()->getDisFracMMVD() )
   {
     offset <<= 2;
   }
@@ -441,7 +490,9 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
         }
       }
       else
-      tempMv[0] = tempMv[1].scaleMv(scale);
+      {
+        tempMv[0] = tempMv[1].scaleMv(scale);
+      }
     }
     else
     {
@@ -460,7 +511,9 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
         }
       }
       else
-      tempMv[1] = tempMv[0].scaleMv(scale);
+      {
+        tempMv[1] = tempMv[0].scaleMv(scale);
+      }
     }
 
     pu.interDir = 3;
@@ -468,6 +521,25 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
     pu.refIdx[REF_PIC_LIST_0] = refList0;
     pu.mv[REF_PIC_LIST_1] = mmvdBaseMv[fPosBaseIdx][1].mv + tempMv[1];
     pu.refIdx[REF_PIC_LIST_1] = refList1;
+#if GDR_ENABLED
+    if (isEncodeGdrClean)
+    {
+      Mv mv0 = pu.mv[REF_PIC_LIST_0];
+      Mv mv1 = pu.mv[REF_PIC_LIST_1];
+
+      int refIdx0 = pu.refIdx[REF_PIC_LIST_0];
+      int refIdx1 = pu.refIdx[REF_PIC_LIST_1];
+
+      mmvdValid[fPosBaseIdx][0] = cs.isClean(pu.Y().topRight(), mv0, REF_PIC_LIST_0, refIdx0);
+      mmvdValid[fPosBaseIdx][1] = cs.isClean(pu.Y().topRight(), mv1, REF_PIC_LIST_1, refIdx1);
+
+      pu.mvSolid[REF_PIC_LIST_0] = mmvdSolid[fPosBaseIdx][0];
+      pu.mvSolid[REF_PIC_LIST_1] = mmvdSolid[fPosBaseIdx][1];
+
+      pu.mvValid[REF_PIC_LIST_0] = mmvdValid[fPosBaseIdx][0];
+      pu.mvValid[REF_PIC_LIST_1] = mmvdValid[fPosBaseIdx][1];
+    }
+#endif
   }
   else if (refList0 != -1)
   {
@@ -492,6 +564,26 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
     pu.refIdx[REF_PIC_LIST_0] = refList0;
     pu.mv[REF_PIC_LIST_1] = Mv(0, 0);
     pu.refIdx[REF_PIC_LIST_1] = -1;
+
+#if GDR_ENABLED
+    if (isEncodeGdrClean)
+    {
+      Mv mv0 = pu.mv[REF_PIC_LIST_0];
+      //Mv mv1 = pu.mv[REF_PIC_LIST_1];
+
+      int refIdx0 = pu.refIdx[REF_PIC_LIST_0];
+      //int refIdx1 = pu.refIdx[REF_PIC_LIST_1];
+
+      pu.mvSolid[REF_PIC_LIST_0] = mmvdSolid[fPosBaseIdx][0];
+      pu.mvSolid[REF_PIC_LIST_1] = true;
+
+      mmvdValid[fPosBaseIdx][0] = cs.isClean(pu.Y().topRight(), mv0, REF_PIC_LIST_0, refIdx0);
+      mmvdValid[fPosBaseIdx][1] = true;
+
+      pu.mvValid[REF_PIC_LIST_0] = mmvdValid[fPosBaseIdx][0];
+      pu.mvValid[REF_PIC_LIST_1] = true;
+    }
+#endif
   }
   else if (refList1 != -1)
   {
@@ -516,16 +608,31 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
     pu.refIdx[REF_PIC_LIST_0] = -1;
     pu.mv[REF_PIC_LIST_1] = mmvdBaseMv[fPosBaseIdx][1].mv + tempMv[1];
     pu.refIdx[REF_PIC_LIST_1] = refList1;
+#if GDR_ENABLED
+    if (isEncodeGdrClean)
+    {
+      // Mv mv0 = pu.mv[REF_PIC_LIST_0];
+      Mv mv1 = pu.mv[REF_PIC_LIST_1];
+
+      // int refIdx0 = pu.refIdx[REF_PIC_LIST_0];
+      int refIdx1 = pu.refIdx[REF_PIC_LIST_1];
+
+      mmvdValid[fPosBaseIdx][0] = true;
+      mmvdValid[fPosBaseIdx][1] = cs.isClean(pu.Y().topRight(), mv1, REF_PIC_LIST_1, refIdx1);
+
+      pu.mvSolid[REF_PIC_LIST_0] = true;
+      pu.mvSolid[REF_PIC_LIST_1] = mmvdSolid[fPosBaseIdx][1];
+
+      pu.mvValid[REF_PIC_LIST_0] = true;
+      pu.mvValid[REF_PIC_LIST_1] = mmvdValid[fPosBaseIdx][1];
+    }
+#endif
   }
 
   pu.mmvdMergeFlag = true;
   pu.mmvdMergeIdx = candIdx;
   pu.mergeFlag = true;
-#if JVET_O0249_MERGE_SYNTAX
   pu.regularMergeFlag = true;
-#else
-  pu.regularMergeFlag = false;
-#endif
   pu.mergeIdx = candIdx;
   pu.mergeType = MRG_TYPE_DEFAULT_N;
   pu.mvd[REF_PIC_LIST_0] = Mv();
@@ -534,11 +641,9 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
   pu.mvpIdx[REF_PIC_LIST_1] = NOT_VALID;
   pu.mvpNum[REF_PIC_LIST_0] = NOT_VALID;
   pu.mvpNum[REF_PIC_LIST_1] = NOT_VALID;
-#if JVET_O0057_ALTHPELIF
   pu.cu->imv = mmvdUseAltHpelIf[fPosBaseIdx] ? IMV_HPEL : 0;
-#endif
 
-  pu.cu->GBiIdx = (interDirNeighbours[fPosBaseIdx] == 3) ? GBiIdx[fPosBaseIdx] : GBI_DEFAULT;
+  pu.cu->BcwIdx = (interDirNeighbours[fPosBaseIdx] == 3) ? BcwIdx[fPosBaseIdx] : BCW_DEFAULT;
 
   for (int refList = 0; refList < 2; refList++)
   {
@@ -547,7 +652,6 @@ void MergeCtx::setMmvdMergeCandiInfo(PredictionUnit& pu, int candIdx)
       pu.mv[refList].clipToStorageBitDepth();
     }
   }
-
 
   PU::restrictBiPredMergeCandsOne(pu);
 }
@@ -566,4 +670,17 @@ unsigned DeriveCtx::CtxMipFlag( const CodingUnit& cu )
   ctxId  = (cu.lwidth() > 2*cu.lheight() || cu.lheight() > 2*cu.lwidth()) ? 3 : ctxId;
 
   return ctxId;
+}
+
+unsigned DeriveCtx::CtxPltCopyFlag( const unsigned prevRunType, const unsigned dist )
+{
+  uint8_t *ucCtxLut = (prevRunType == PLT_RUN_INDEX) ? g_paletteRunLeftLut : g_paletteRunTopLut;
+  if ( dist <= RUN_IDX_THRE )
+  {
+    return ucCtxLut[dist];
+  }
+  else
+  {
+    return ucCtxLut[RUN_IDX_THRE];
+  }
 }

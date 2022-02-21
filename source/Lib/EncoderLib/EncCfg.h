@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,6 +47,10 @@
 
 #include "CommonLib/Unit.h"
 
+#include "EncCfgParam.h"
+
+using namespace EncCfgParam;
+
 #if JVET_O0756_CALCULATE_HDRMETRICS
 #include "HDRLib/inc/DistortionMetric.H"
 #endif
@@ -66,6 +70,10 @@ struct GOPEntry
   double m_QPFactor;
   int m_tcOffsetDiv2;
   int m_betaOffsetDiv2;
+  int m_CbTcOffsetDiv2;
+  int m_CbBetaOffsetDiv2;
+  int m_CrTcOffsetDiv2;
+  int m_CrBetaOffsetDiv2;
   int m_temporalId;
   bool m_refPic;
   int8_t m_sliceType;
@@ -76,9 +84,7 @@ struct GOPEntry
   int m_numRefPics1;
   int m_deltaRefPics1[MAX_NUM_REF_PICS];
   bool m_isEncoded;
-#if JVET_N0100_PROPOSAL1
   bool m_ltrp_in_slice_header_flag;
-#endif
   GOPEntry()
   : m_POC(-1)
   , m_QPOffset(0)
@@ -93,6 +99,10 @@ struct GOPEntry
   , m_QPFactor(0)
   , m_tcOffsetDiv2(0)
   , m_betaOffsetDiv2(0)
+  , m_CbTcOffsetDiv2(0)
+  , m_CbBetaOffsetDiv2(0)
+  , m_CrTcOffsetDiv2(0)
+  , m_CrBetaOffsetDiv2(0)
   , m_temporalId(0)
   , m_refPic(false)
   , m_sliceType('P')
@@ -101,9 +111,7 @@ struct GOPEntry
     , m_numRefPicsActive1(0)
     , m_numRefPics1(0)
     , m_isEncoded(false)
-#if JVET_N0100_PROPOSAL1
     , m_ltrp_in_slice_header_flag(false)
-#endif
   {
     ::memset(m_deltaRefPics0, 0, sizeof(m_deltaRefPics0));
     ::memset(m_deltaRefPics1, 0, sizeof(m_deltaRefPics1));
@@ -120,9 +128,7 @@ struct RPLEntry
   int m_numRefPics;
   int m_deltaRefPics[MAX_NUM_REF_PICS];
   bool m_isEncoded;
-#if JVET_N0100_PROPOSAL1
   bool m_ltrp_in_slice_header_flag;
-#endif
   RPLEntry()
     : m_POC(-1)
     , m_temporalId(0)
@@ -131,36 +137,13 @@ struct RPLEntry
     , m_sliceType('P')
     , m_numRefPics(0)
     , m_isEncoded(false)
-#if JVET_N0100_PROPOSAL1
     , m_ltrp_in_slice_header_flag(false)
-#endif
   {
     ::memset(m_deltaRefPics, 0, sizeof(m_deltaRefPics));
   }
 };
 
 std::istringstream &operator>>(std::istringstream &in, GOPEntry &entry);     //input
-
-struct BrickSplit
-{
-  int     m_tileIdx;
-  bool    m_uniformSplit;
-  int     m_uniformHeight;
-  int     m_numSplits;
-  int     m_brickHeight[MAX_NUM_BRICKS_PER_TILE];
-  BrickSplit()
-    : m_tileIdx(-1)
-    , m_uniformSplit(true)
-    , m_uniformHeight(0)
-    , m_numSplits(0)
-  {
-    ::memset( m_brickHeight, 0, sizeof(m_brickHeight) );
-  }
-};
-
-typedef std::map<int, BrickSplit> BrickSplitMap;
-
-std::istringstream &operator>>(std::istringstream &in, BrickSplit &entry);     //input
 
 
 //! \ingroup EncoderLib
@@ -178,9 +161,10 @@ protected:
   int       m_iFrameRate;
   int       m_FrameSkip;
   uint32_t      m_temporalSubsampleRatio;
-  int       m_iSourceWidth;
-  int       m_iSourceHeight;
+  int       m_sourceWidth;
+  int       m_sourceHeight;
   Window    m_conformanceWindow;
+  int       m_sourcePadding[2];
   int       m_framesToBeEncoded;
   double    m_adLambdaModifier[ MAX_TLAYER ];
   std::vector<double> m_adIntraLambdaModifier;
@@ -190,69 +174,95 @@ protected:
   bool      m_printHexPsnr;
   bool      m_printFrameMSE;
   bool      m_printSequenceMSE;
+  bool      m_printMSSSIM;
+  bool      m_printWPSNR;
   bool      m_cabacZeroWordPaddingEnabled;
 
+  bool      m_gciPresentFlag;
+  bool      m_onePictureOnlyConstraintFlag;
   bool      m_bIntraOnlyConstraintFlag;
   uint32_t  m_maxBitDepthConstraintIdc;
-  uint32_t  m_maxChromaFormatConstraintIdc;
-  bool      m_bFrameConstraintFlag;
-  bool      m_bNoQtbttDualTreeIntraConstraintFlag;
+  int  m_maxChromaFormatConstraintIdc;
+  bool      m_allLayersIndependentConstraintFlag;
+  bool      m_noMrlConstraintFlag;
+  bool      m_noIspConstraintFlag;
+  bool      m_noMipConstraintFlag;
+  bool      m_noLfnstConstraintFlag;
+  bool      m_noMmvdConstraintFlag;
+  bool      m_noSmvdConstraintFlag;
+  bool      m_noProfConstraintFlag;
+  bool      m_noPaletteConstraintFlag;
+  bool      m_noActConstraintFlag;
+  bool      m_noLmcsConstraintFlag;
+  bool      m_noExplicitScaleListConstraintFlag;
+  bool      m_noVirtualBoundaryConstraintFlag;
+  bool      m_noMttConstraintFlag;
+  bool      m_noChromaQpOffsetConstraintFlag;
+  bool      m_noQtbttDualTreeIntraConstraintFlag;
+  int       m_maxLog2CtuSizeConstraintIdc;
   bool      m_noPartitionConstraintsOverrideConstraintFlag;
-  bool      m_bNoSaoConstraintFlag;
-  bool      m_bNoAlfConstraintFlag;
-#if !JVET_O0525_REMOVE_PCM
-  bool      m_bNoPcmConstraintFlag;
-#endif
-  bool      m_bNoRefWraparoundConstraintFlag;
-  bool      m_bNoTemporalMvpConstraintFlag;
-  bool      m_bNoSbtmvpConstraintFlag;
-  bool      m_bNoAmvrConstraintFlag;
-  bool      m_bNoBdofConstraintFlag;
+  bool      m_noSaoConstraintFlag;
+  bool      m_noAlfConstraintFlag;
+  bool      m_noCCAlfConstraintFlag;
+  bool      m_noWeightedPredictionConstraintFlag;
+  bool      m_noRefWraparoundConstraintFlag;
+  bool      m_noTemporalMvpConstraintFlag;
+  bool      m_noSbtmvpConstraintFlag;
+  bool      m_noAmvrConstraintFlag;
+  bool      m_noBdofConstraintFlag;
   bool      m_noDmvrConstraintFlag;
-  bool      m_bNoCclmConstraintFlag;
-  bool      m_bNoMtsConstraintFlag;
+  bool      m_noCclmConstraintFlag;
+  bool      m_noMtsConstraintFlag;
   bool      m_noSbtConstraintFlag;
-  bool      m_bNoAffineMotionConstraintFlag;
-  bool      m_bNoGbiConstraintFlag;
+  bool      m_noAffineMotionConstraintFlag;
+  bool      m_noBcwConstraintFlag;
   bool      m_noIbcConstraintFlag;
-  bool      m_bNoMhIntraConstraintFlag;
-  bool      m_noFPelMmvdConstraintFlag;
-  bool      m_bNoTriangleConstraintFlag;
-  bool      m_bNoLadfConstraintFlag;
+  bool      m_noCiipConstraintFlag;
+  bool      m_noGeoConstraintFlag;
+  bool      m_noLadfConstraintFlag;
   bool      m_noTransformSkipConstraintFlag;
-#if JVET_O1136_TS_BDPCM_SIGNALLING
+  bool      m_noLumaTransformSize64ConstraintFlag;
   bool      m_noBDPCMConstraintFlag;
-#endif
-#if JVET_O0376_SPS_JOINTCBCR_FLAG
   bool      m_noJointCbCrConstraintFlag;
+  bool      m_noCuQpDeltaConstraintFlag;
+  bool      m_noDepQuantConstraintFlag;
+  bool      m_noSignDataHidingConstraintFlag;
+  bool      m_noTrailConstraintFlag;
+  bool      m_noStsaConstraintFlag;
+  bool      m_noRaslConstraintFlag;
+  bool      m_noRadlConstraintFlag;
+  bool      m_noIdrConstraintFlag;
+  bool      m_noCraConstraintFlag;
+  bool      m_noGdrConstraintFlag;
+  bool      m_noApsConstraintFlag;
+#if JVET_W2005_RANGE_EXTENSION_PROFILES
+  bool      m_generalLowerBitRateConstraintFlag;
 #endif
-  bool      m_bNoQpDeltaConstraintFlag;
-  bool      m_bNoDepQuantConstraintFlag;
-  bool      m_bNoSignDataHidingConstraintFlag;
 
   /* profile & level */
   Profile::Name m_profile;
   Level::Tier   m_levelTier;
   Level::Name   m_level;
-#if JVET_O0044_MULTI_SUB_PROFILE
+  bool m_frameOnlyConstraintFlag;
+  bool m_multiLayerEnabledFlag;
   std::vector<uint32_t>      m_subProfile;
   uint8_t       m_numSubProfile;
-#else
-  uint32_t      m_subProfile;
-#endif
-  bool m_progressiveSourceFlag;
-  bool m_interlacedSourceFlag;
   bool m_nonPackedConstraintFlag;
-  bool m_frameOnlyConstraintFlag;
-  uint32_t              m_bitDepthConstraintValue;
-  ChromaFormat      m_chromaFormatConstraintValue;
-  bool              m_intraConstraintFlag;
-  bool              m_onePictureOnlyConstraintFlag;
-  bool              m_lowerBitRateConstraintFlag;
+  bool m_nonProjectedConstraintFlag;
+  bool m_noRprConstraintFlag;
+  bool m_noResChangeInClvsConstraintFlag;
+  bool m_oneTilePerPicConstraintFlag;
+  bool m_picHeaderInSliceHeaderConstraintFlag;
+  bool m_oneSlicePerPicConstraintFlag;
+  bool m_noIdrRplConstraintFlag;
+  bool m_noRectSliceConstraintFlag;
+  bool m_oneSlicePerSubpicConstraintFlag;
+  bool m_noSubpicInfoConstraintFlag;
+  bool m_intraOnlyConstraintFlag;
 
   //====== Coding Structure ========
-  int       m_uiIntraPeriod;                        // needs to be signed to allow '-1' for no intra period
-  uint32_t      m_uiDecodingRefreshType;            ///< the type of decoding refresh employed for the random access.
+  int       m_intraPeriod;                        // needs to be signed to allow '-1' for no intra period
+  uint32_t  m_decodingRefreshType;            ///< the type of decoding refresh employed for the random access.
   bool      m_rewriteParamSets;
   bool      m_idrRefParamList;
   int       m_iGOPSize;
@@ -262,61 +272,80 @@ protected:
   int       m_numRPLList1;
   GOPEntry  m_GOPList[MAX_GOP];
   int       m_maxDecPicBuffering[MAX_TLAYER];
-  int       m_numReorderPics[MAX_TLAYER];
-#if JVET_N0494_DRAP
+  int       m_maxNumReorderPics[MAX_TLAYER];
   int       m_drapPeriod;
-#endif
+  int       m_edrapPeriod;
 
   int       m_iQP;                              //  if (AdaptiveQP == OFF)
-#if JVET_O0650_SIGNAL_CHROMAQP_MAPPING_TABLE
   ChromaQpMappingTableParams m_chromaQpMappingTableParams;
-#endif
 #if X0038_LAMBDA_FROM_QP_CAPABILITY
   int       m_intraQPOffset;                    ///< QP offset for intra slice (integer)
   int       m_lambdaFromQPEnable;               ///< enable lambda derivation from QP
 #endif
-  int       m_aiPad[2];
 
   bool      m_AccessUnitDelimiter;               ///< add Access Unit Delimiter NAL units
+  bool      m_enablePictureHeaderInSliceHeader;  ///< Enable Picture Header in Slice Header
 
   int       m_iMaxRefPicNum;                     ///< this is used to mimic the sliding mechanism used by the decoder
                                                  // TODO: We need to have a common sliding mechanism used by both the encoder and decoder
 
   int       m_maxTempLayer;                      ///< Max temporal layer
   unsigned  m_CTUSize;
+  bool                  m_subPicInfoPresentFlag;
+  uint32_t              m_numSubPics;
+  bool                  m_subPicSameSizeFlag;
+  std::vector<uint32_t> m_subPicCtuTopLeftX;
+  std::vector<uint32_t> m_subPicCtuTopLeftY;
+  std::vector<uint32_t> m_subPicWidth;
+  std::vector<uint32_t> m_subPicHeight;
+  std::vector<bool>     m_subPicTreatedAsPicFlag;
+  std::vector<bool>     m_loopFilterAcrossSubpicEnabledFlag;
+  bool                  m_subPicIdMappingExplicitlySignalledFlag;
+  bool                  m_subPicIdMappingInSpsFlag;
+  unsigned              m_subPicIdLen;
+  std::vector<uint16_t> m_subPicId;
+#if GDR_ENABLED
+  bool      m_gdrEnabled;  
+  unsigned  m_gdrPocStart;
+  unsigned  m_gdrPeriod;
+  int       m_gdrInterval;  
+  bool      m_gdrNoHash;  
+#endif
   bool      m_useSplitConsOverride;
   unsigned  m_uiMinQT[3]; //0: I slice; 1: P/B slice, 2: I slice chroma
+  unsigned  m_uiMaxBT[3]; //0: I slice; 1: P/B slice, 2: I slice chroma
+  unsigned  m_uiMaxTT[3]; //0: I slice; 1: P/B slice, 2: I slice chroma
   unsigned  m_uiMaxMTTHierarchyDepth;
   unsigned  m_uiMaxMTTHierarchyDepthI;
   unsigned  m_uiMaxMTTHierarchyDepthIChroma;
   bool      m_dualITree;
   unsigned  m_maxCUWidth;
   unsigned  m_maxCUHeight;
-  unsigned  m_maxTotalCUDepth;
-  unsigned  m_log2DiffMaxMinCodingBlockSize;
+  unsigned m_log2MinCUSize;
 
   int       m_LMChroma;
-  bool      m_cclmCollocatedChromaFlag;
+  bool      m_horCollocatedChromaFlag;
+  bool      m_verCollocatedChromaFlag;
   int       m_IntraMTS;
   int       m_InterMTS;
-  int       m_IntraMTSMaxCand;
-  int       m_InterMTSMaxCand;
+  int       m_MTSIntraMaxCand;
+  int       m_MTSInterMaxCand;
   int       m_ImplicitMTS;
   bool      m_SBT;                                ///< Sub-Block Transform for inter blocks
+  int       m_SBTFast64WidthTh;                   ///< Enable size-64 SBT in encoder RDO check for HD and above sequences
+
   bool      m_LFNST;
   bool      m_useFastLFNST;
-  int       m_SubPuMvpMode;
+  bool      m_sbTmvpEnableFlag;
   bool      m_Affine;
   bool      m_AffineType;
-#if JVET_O0070_PROF
   bool      m_PROF;
-#endif
   bool      m_BIO;
 
   bool      m_SMVD;
   bool      m_compositeRefEnabled;        //composite reference
-  bool      m_GBi;
-  bool      m_GBiFast;
+  bool      m_bcw;
+  bool      m_BcwFast;
 #if LUMA_ADAPTIVE_DEBLOCKING_FILTER_QP_OFFSET
   bool      m_LadfEnabled;
   int       m_LadfNumIntervals;
@@ -324,8 +353,8 @@ protected:
   int       m_LadfIntervalLowerBound[MAX_LADF_INTERVALS];
 #endif
 
-  bool      m_MHIntra;
-  bool      m_Triangle;
+  bool      m_ciip;
+  bool      m_Geo;
   bool      m_allowDisFracMMVD;
   bool      m_AffineAmvr;
   bool      m_HashME;
@@ -333,15 +362,10 @@ protected:
   bool      m_DMVR;
   bool      m_MMVD;
   int       m_MmvdDisNum;
-#if !JVET_O1136_TS_BDPCM_SIGNALLING  
-  bool      m_RdpcmMode;
-#endif  
-#if JVET_O0119_BASE_PALETTE_444
+  bool      m_rgbFormat;
+  bool      m_useColorTrans;
   unsigned  m_PLTMode;
-#endif
-#if JVET_O0376_SPS_JOINTCBCR_FLAG
   bool      m_JointCbCrMode;
-#endif
   unsigned  m_IBCMode;
   unsigned  m_IBCLocalSearchRangeX;
   unsigned  m_IBCLocalSearchRangeY;
@@ -354,15 +378,17 @@ protected:
   unsigned  m_wrapAroundOffset;
 
   // ADD_NEW_TOOL : (encoder lib) add tool enabling flags and associated parameters here
-  bool      m_loopFilterAcrossVirtualBoundariesDisabledFlag;
+  bool      m_virtualBoundariesEnabledFlag;
+  bool      m_virtualBoundariesPresentFlag;
   unsigned  m_numVerVirtualBoundaries;
   unsigned  m_numHorVirtualBoundaries;
   unsigned  m_virtualBoundariesPosX[3];
   unsigned  m_virtualBoundariesPosY[3];
-  bool      m_lumaReshapeEnable;
+  bool      m_lmcsEnabled;
   unsigned  m_reshapeSignalType;
   unsigned  m_intraCMD;
   ReshapeCW m_reshapeCW;
+  int       m_CSoffset;
   bool      m_encDbOpt;
   bool      m_useFastLCTU;
   bool      m_useFastMrg;
@@ -372,29 +398,31 @@ protected:
   bool      m_contentBasedFastQtbt;
   bool      m_useNonLinearAlfLuma;
   bool      m_useNonLinearAlfChroma;
-#if JVET_O0090_ALF_CHROMA_FILTER_ALTERNATIVES_CTB
   unsigned  m_maxNumAlfAlternativesChroma;
-#endif
+  bool      m_MRL;
   bool      m_MIP;
   bool      m_useFastMIP;
-#if JVET_O0050_LOCAL_DUAL_TREE
   int       m_fastLocalDualTreeMode;
-#endif
-#if MAX_TB_SIZE_SIGNALLING
   uint32_t  m_log2MaxTbSize;
-#endif
 
   //====== Loop/Deblock Filter ========
-  bool      m_bLoopFilterDisable;
-  bool      m_loopFilterOffsetInPPS;
-  int       m_loopFilterBetaOffsetDiv2;
-  int       m_loopFilterTcOffsetDiv2;
+  bool      m_deblockingFilterDisable;
+  bool      m_deblockingFilterOffsetInPPS;
+  int       m_deblockingFilterBetaOffsetDiv2;
+  int       m_deblockingFilterTcOffsetDiv2;
+  int       m_deblockingFilterCbBetaOffsetDiv2;
+  int       m_deblockingFilterCbTcOffsetDiv2;
+  int       m_deblockingFilterCrBetaOffsetDiv2;
+  int       m_deblockingFilterCrTcOffsetDiv2;
 #if W0038_DB_OPT
   int       m_deblockingFilterMetric;
 #else
   bool      m_DeblockingFilterMetric;
 #endif
   bool      m_bUseSAO;
+#if JVET_W0129_ENABLE_ALF_TRUEORG
+  bool      m_saoTrueOrg;
+#endif
   bool      m_bTestSAODisableAtPictureLevel;
   double    m_saoEncodingRate;       // When non-0 SAO early picture termination is enabled for luma and chroma
   double    m_saoEncodingRateChroma; // The SAO early picture termination rate to use for chroma (when m_SaoEncodingRate is >0). If <=0, use results for luma.
@@ -415,7 +443,9 @@ protected:
   //====== Quality control ========
   int       m_iMaxDeltaQP;                      //  Max. absolute delta QP (1:default)
   int       m_cuQpDeltaSubdiv;                  //  Max. subdivision level for a CuDQP (0:default)
-  int       m_cuChromaQpOffsetSubdiv;           ///< If negative, then do not apply chroma qp offsets.
+  unsigned  m_cuChromaQpOffsetSubdiv;           ///< Max. subdivision level for a chroma QP adjustment (0:default)
+  bool      m_cuChromaQpOffsetEnabled;          ///< Local chroma QP offset enable flag
+  std::vector<ChromaQpAdj> m_cuChromaQpOffsetList; ///< Local chroma QP offsets list (to be signalled in PPS)
 
   int       m_chromaCbQpOffset;                 //  Chroma Cb QP Offset (0:default)
   int       m_chromaCrQpOffset;                 //  Chroma Cr Qp Offset (0:default)
@@ -434,6 +464,10 @@ protected:
   ChromaFormat m_chromaFormatIDC;
 
   bool      m_extendedPrecisionProcessingFlag;
+  bool      m_tsrcRicePresentFlag;
+#if JVET_W0046_RLSCP
+  bool      m_reverseLastSigCoeffEnabledFlag;
+#endif
   bool      m_highPrecisionOffsetsEnabledFlag;
   bool      m_bUseAdaptiveQP;
   int       m_iQPAdaptationRange;
@@ -456,24 +490,38 @@ protected:
   FastInterSearchMode m_fastInterSearchMode;
   bool      m_bUseEarlyCU;
   bool      m_useFastDecisionForMerge;
-  bool      m_bUseCbfFastMode;
   bool      m_useEarlySkipDetection;
-  bool      m_crossComponentPredictionEnabledFlag;
   bool      m_reconBasedCrossCPredictionEstimate;
-  uint32_t      m_log2SaoOffsetScale[MAX_NUM_CHANNEL_TYPE];
   bool      m_useTransformSkip;
   bool      m_useTransformSkipFast;
-#if JVET_O1136_TS_BDPCM_SIGNALLING
+  bool      m_useChromaTS;
   bool      m_useBDPCM;
-#endif
   uint32_t      m_log2MaxTransformSkipBlockSize;
   bool      m_transformSkipRotationEnabledFlag;
   bool      m_transformSkipContextEnabledFlag;
+  bool      m_rrcRiceExtensionEnableFlag;
   bool      m_persistentRiceAdaptationEnabledFlag;
   bool      m_cabacBypassAlignmentEnabledFlag;
-  bool      m_rdpcmEnabledFlag[NUMBER_OF_RDPCM_SIGNALLING_MODES];
 #if SHARP_LUMA_DELTA_QP
   LumaLevelToDeltaQPMapping m_lumaLevelToDeltaQPMapping; ///< mapping from luma level to delta QP.
+#endif
+  bool      m_smoothQPReductionEnable;
+#if JVET_W0043
+  int       m_smoothQPReductionPeriodicity;
+  double    m_smoothQPReductionThresholdIntra;
+  double    m_smoothQPReductionModelScaleIntra;
+  double    m_smoothQPReductionModelOffsetIntra;
+  int       m_smoothQPReductionLimitIntra;
+  double    m_smoothQPReductionThresholdInter;
+  double    m_smoothQPReductionModelScaleInter;
+  double    m_smoothQPReductionModelOffsetInter;
+  int       m_smoothQPReductionLimitInter;
+#else
+  double    m_smoothQPReductionThreshold;
+  double    m_smoothQPReductionModelScale;
+  double    m_smoothQPReductionModelOffset;
+  int       m_smoothQPReductionPeriodicity;
+  int       m_smoothQPReductionLimit;
 #endif
   int*      m_aidQP;
   uint32_t      m_uiDeltaQpRD;
@@ -481,139 +529,233 @@ protected:
   bool      m_ISP;
   bool      m_useFastISP;
 
-  bool      m_bUseConstrainedIntraPred;
   bool      m_bFastUDIUseMPMEnabled;
   bool      m_bFastMEForGenBLowDelayEnabled;
   bool      m_bUseBLambdaForNonKeyLowDelayPictures;
-#if !JVET_O0525_REMOVE_PCM
-  bool      m_usePCM;
-  int       m_PCMBitDepth[MAX_NUM_CHANNEL_TYPE];
-  uint32_t      m_pcmLog2MaxSize;
-  uint32_t      m_uiPCMLog2MinSize;
-#endif
-  //====== Slice ========
-  SliceConstraint m_sliceMode;
-  int       m_sliceArgument;
-  //====== Dependent Slice ========
-  SliceConstraint m_sliceSegmentMode;
-  int       m_sliceSegmentArgument;
-  bool      m_bLFCrossSliceBoundaryFlag;
+  bool      m_gopBasedTemporalFilterEnabled;
+  bool      m_noPicPartitionFlag;                             ///< no picture partitioning flag (single tile, single slice)
+  bool      m_mixedLossyLossless;                             ///< enable mixed lossy/lossless coding
+  std::vector<uint16_t> m_sliceLosslessArray;                      ///< Slice lossless array
+  std::vector<uint32_t> m_tileColumnWidth;                    ///< tile column widths in units of CTUs (last column width will be repeated uniformly to cover any remaining picture width)
+  std::vector<uint32_t> m_tileRowHeight;                      ///< tile row heights in units of CTUs (last row height will be repeated uniformly to cover any remaining picture height)
+  bool      m_rectSliceFlag;                                  ///< indicates if using rectangular or raster-scan slices
+  uint32_t  m_numSlicesInPic;                                 ///< number of rectangular slices in the picture (raster-scan slice specified at slice level)
+  bool      m_tileIdxDeltaPresentFlag;                        ///< rectangular slice tile index delta present flag
+  std::vector<RectSlice> m_rectSlices;                        ///< list of rectanglar slice syntax parameters
+  std::vector<uint32_t> m_rasterSliceSize;                    ///< raster-scan slice sizes in units of tiles
+  bool      m_bLFCrossTileBoundaryFlag;                       ///< 1: filter across tile boundaries  0: do not filter across tile boundaries
+  bool      m_bLFCrossSliceBoundaryFlag;                      ///< 1: filter across slice boundaries 0: do not filter across slice boundaries
 
-#if !JVET_O0525_REMOVE_PCM
-  bool      m_bPCMInputBitDepthFlag;
-  bool      m_bPCMFilterDisableFlag;
-#endif
   bool      m_intraSmoothingDisabledFlag;
-  bool      m_loopFilterAcrossBricksEnabledFlag;
-  bool      m_tileUniformSpacingFlag;
-  int       m_iNumColumnsMinus1;
-  int       m_iNumRowsMinus1;
-#if JVET_O0143_BOTTOM_RIGHT_BRICK_IDX_DELTA
-  int       m_uniformTileColsWidthMinus1;
-  int       m_uniformTileRowHeightMinus1;
-#endif
-  std::vector<int> m_tileColumnWidth;
-  std::vector<int> m_tileRowHeight;
-
+  //====== Sub-picture and Slices ========
+  bool      m_singleSlicePerSubPicFlag;
   bool      m_entropyCodingSyncEnabledFlag;
-
-  bool      m_rectSliceFlag;
-  int       m_numSlicesInPicMinus1;
-  std::vector<int> m_topLeftBrickIdx;
-  std::vector<int> m_bottomRightBrickIdx;
-  bool      m_loopFilterAcrossSlicesEnabledFlag;
-  bool      m_signalledSliceIdFlag;
-  int       m_signalledSliceIdLengthMinus1;
-  std::vector<int> m_sliceId;
-  BrickSplitMap m_brickSplitMap;
+  bool      m_entryPointPresentFlag;                           ///< flag for the presence of entry points
 
   HashType  m_decodedPictureHashSEIType;
+  HashType  m_subpicDecodedPictureHashType;
   bool      m_bufferingPeriodSEIEnabled;
   bool      m_pictureTimingSEIEnabled;
-#if JVET_O0041_FRAME_FIELD_SEI
   bool      m_frameFieldInfoSEIEnabled;
-#endif
-#if JVET_N0494_DRAP
   bool      m_dependentRAPIndicationSEIEnabled;
-#endif
-#if HEVC_SEI
-  bool      m_recoveryPointSEIEnabled;
-  bool      m_toneMappingInfoSEIEnabled;
-  int       m_toneMapId;
-  bool      m_toneMapCancelFlag;
-  bool      m_toneMapPersistenceFlag;
-  int       m_codedDataBitDepth;
-  int       m_targetBitDepth;
-  int       m_modelId;
-  int       m_minValue;
-  int       m_maxValue;
-  int       m_sigmoidMidpoint;
-  int       m_sigmoidWidth;
-  int       m_numPivots;
-  int       m_cameraIsoSpeedIdc;
-  int       m_cameraIsoSpeedValue;
-  int       m_exposureIndexIdc;
-  int       m_exposureIndexValue;
-  bool      m_exposureCompensationValueSignFlag;
-  int       m_exposureCompensationValueNumerator;
-  int       m_exposureCompensationValueDenomIdc;
-  int       m_refScreenLuminanceWhite;
-  int       m_extendedRangeWhiteLevel;
-  int       m_nominalBlackLevelLumaCodeValue;
-  int       m_nominalWhiteLevelLumaCodeValue;
-  int       m_extendedWhiteLevelLumaCodeValue;
-  int*      m_startOfCodedInterval;
-  int*      m_codedPivotValue;
-  int*      m_targetPivotValue;
+  bool      m_edrapIndicationSEIEnabled;
   bool      m_framePackingSEIEnabled;
   int       m_framePackingSEIType;
   int       m_framePackingSEIId;
   int       m_framePackingSEIQuincunx;
   int       m_framePackingSEIInterpretation;
-  bool      m_segmentedRectFramePackingSEIEnabled;
-  bool      m_segmentedRectFramePackingSEICancel;
-  int       m_segmentedRectFramePackingSEIType;
-  bool      m_segmentedRectFramePackingSEIPersistence;
-  int       m_displayOrientationSEIAngle;
-  bool      m_temporalLevel0IndexSEIEnabled;
-  bool      m_gradualDecodingRefreshInfoEnabled;
-  int       m_noDisplaySEITLayer;
-#endif
-#if JVET_N0867_TEMP_SCAL_HRD
+  bool      m_doSEIEnabled;
+  bool      m_doSEICancelFlag;
+  bool      m_doSEIPersistenceFlag;
+  int       m_doSEITransformType;
+  bool      m_parameterSetsInclusionIndicationSEIEnabled;
+  bool      m_selfContainedClvsFlag;
   bool      m_bpDeltasGOPStructure;
-#endif
   bool      m_decodingUnitInfoSEIEnabled;
-#if HEVC_SEI
-  bool      m_SOPDescriptionSEIEnabled;
+
   bool      m_scalableNestingSEIEnabled;
-  bool      m_tmctsSEIEnabled;
-#endif
+
+  bool      m_erpSEIEnabled;
+  bool      m_erpSEICancelFlag;
+  bool      m_erpSEIPersistenceFlag;
+  bool      m_erpSEIGuardBandFlag;
+  uint32_t  m_erpSEIGuardBandType;
+  uint32_t  m_erpSEILeftGuardBandWidth;
+  uint32_t  m_erpSEIRightGuardBandWidth;
+  bool      m_sphereRotationSEIEnabled;
+  bool      m_sphereRotationSEICancelFlag;
+  bool      m_sphereRotationSEIPersistenceFlag;
+  int       m_sphereRotationSEIYaw;
+  int       m_sphereRotationSEIPitch;
+  int       m_sphereRotationSEIRoll;
+  bool      m_omniViewportSEIEnabled;
+  uint32_t  m_omniViewportSEIId;
+  bool      m_omniViewportSEICancelFlag;
+  bool      m_omniViewportSEIPersistenceFlag;
+  uint32_t  m_omniViewportSEICntMinus1;
+  std::vector<int>      m_omniViewportSEIAzimuthCentre;
+  std::vector<int>      m_omniViewportSEIElevationCentre;
+  std::vector<int>      m_omniViewportSEITiltCentre;
+  std::vector<uint32_t> m_omniViewportSEIHorRange;
+  std::vector<uint32_t> m_omniViewportSEIVerRange;
+  bool                  m_rwpSEIEnabled;
+  bool                  m_rwpSEIRwpCancelFlag;
+  bool                  m_rwpSEIRwpPersistenceFlag;
+  bool                  m_rwpSEIConstituentPictureMatchingFlag;
+  int                   m_rwpSEINumPackedRegions;
+  int                   m_rwpSEIProjPictureWidth;
+  int                   m_rwpSEIProjPictureHeight;
+  int                   m_rwpSEIPackedPictureWidth;
+  int                   m_rwpSEIPackedPictureHeight;
+  std::vector<uint8_t>  m_rwpSEIRwpTransformType;
+  std::vector<bool>     m_rwpSEIRwpGuardBandFlag;
+  std::vector<uint32_t> m_rwpSEIProjRegionWidth;
+  std::vector<uint32_t> m_rwpSEIProjRegionHeight;
+  std::vector<uint32_t> m_rwpSEIRwpSEIProjRegionTop;
+  std::vector<uint32_t> m_rwpSEIProjRegionLeft;
+  std::vector<uint16_t> m_rwpSEIPackedRegionWidth;
+  std::vector<uint16_t> m_rwpSEIPackedRegionHeight;
+  std::vector<uint16_t> m_rwpSEIPackedRegionTop;
+  std::vector<uint16_t> m_rwpSEIPackedRegionLeft;
+  std::vector<uint8_t>  m_rwpSEIRwpLeftGuardBandWidth;
+  std::vector<uint8_t>  m_rwpSEIRwpRightGuardBandWidth;
+  std::vector<uint8_t>  m_rwpSEIRwpTopGuardBandHeight;
+  std::vector<uint8_t>  m_rwpSEIRwpBottomGuardBandHeight;
+  std::vector<bool>     m_rwpSEIRwpGuardBandNotUsedForPredFlag;
+  std::vector<uint8_t>  m_rwpSEIRwpGuardBandType;
+  bool                 m_gcmpSEIEnabled;
+  bool                 m_gcmpSEICancelFlag;
+  bool                 m_gcmpSEIPersistenceFlag;
+  uint8_t              m_gcmpSEIPackingType;
+  uint8_t              m_gcmpSEIMappingFunctionType;
+  std::vector<uint8_t> m_gcmpSEIFaceIndex;
+  std::vector<uint8_t> m_gcmpSEIFaceRotation;
+  std::vector<double>  m_gcmpSEIFunctionCoeffU;
+  std::vector<bool>    m_gcmpSEIFunctionUAffectedByVFlag;
+  std::vector<double>  m_gcmpSEIFunctionCoeffV;
+  std::vector<bool>    m_gcmpSEIFunctionVAffectedByUFlag;
+  bool                 m_gcmpSEIGuardBandFlag;
+  uint8_t              m_gcmpSEIGuardBandType;
+  bool                 m_gcmpSEIGuardBandBoundaryExteriorFlag;
+  uint8_t              m_gcmpSEIGuardBandSamplesMinus1;
+  CfgSEISubpictureLevel m_cfgSubpictureLevelInfoSEI;
+  bool                  m_sampleAspectRatioInfoSEIEnabled;
+  bool                  m_sariCancelFlag;
+  bool                  m_sariPersistenceFlag;
+  int                   m_sariAspectRatioIdc;
+  int                   m_sariSarWidth;
+  int                   m_sariSarHeight;
   bool      m_MCTSEncConstraint;
-#if HEVC_SEI
-  bool      m_timeCodeSEIEnabled;
-  int       m_timeCodeSEINumTs;
-  SEITimeSet   m_timeSetArray[MAX_TIMECODE_SEI_SETS];
-  bool      m_kneeSEIEnabled;
-  int       m_kneeSEIId;
-  bool      m_kneeSEICancelFlag;
-  bool      m_kneeSEIPersistenceFlag;
-  int       m_kneeSEIInputDrange;
-  int       m_kneeSEIInputDispLuminance;
-  int       m_kneeSEIOutputDrange;
-  int       m_kneeSEIOutputDispLuminance;
-  int       m_kneeSEINumKneePointsMinus1;
-  int*      m_kneeSEIInputKneePoint;
-  int*      m_kneeSEIOutputKneePoint;
-  std::string m_colourRemapSEIFileRoot;          ///< SEI Colour Remapping File (initialized from external file)
   SEIMasteringDisplay m_masteringDisplay;
 #if U0033_ALTERNATIVE_TRANSFER_CHARACTERISTICS_SEI
   bool      m_alternativeTransferCharacteristicsSEIEnabled;
   uint8_t     m_preferredTransferCharacteristics;
 #endif
-  bool      m_greenMetadataInfoSEIEnabled;
-  uint8_t     m_greenMetadataType;
-  uint8_t     m_xsdMetricType;
-#endif
+  // film grain characterstics sei
+  bool      m_fgcSEIEnabled;
+  bool      m_fgcSEICancelFlag;
+  bool      m_fgcSEIPersistenceFlag;
+  uint8_t   m_fgcSEIModelID;
+  bool      m_fgcSEISepColourDescPresentFlag;
+  uint8_t   m_fgcSEIBlendingModeID;
+  uint8_t   m_fgcSEILog2ScaleFactor;
+  bool      m_fgcSEICompModelPresent[MAX_NUM_COMPONENT];
+// cll SEI
+  bool      m_cllSEIEnabled;
+  uint16_t  m_cllSEIMaxContentLevel;
+  uint16_t  m_cllSEIMaxPicAvgLevel;
+// ave sei
+  bool      m_aveSEIEnabled;
+  uint32_t  m_aveSEIAmbientIlluminance;
+  uint16_t  m_aveSEIAmbientLightX;
+  uint16_t  m_aveSEIAmbientLightY;
+  // colour tranform information sei
+  bool      m_ctiSEIEnabled;
+  uint32_t  m_ctiSEIId;
+  bool      m_ctiSEISignalInfoFlag;
+  bool      m_ctiSEIFullRangeFlag;
+  uint32_t  m_ctiSEIPrimaries;
+  uint32_t  m_ctiSEITransferFunction;
+  uint32_t  m_ctiSEIMatrixCoefs;
+  bool      m_ctiSEICrossComponentFlag;
+  bool      m_ctiSEICrossComponentInferred;
+  uint32_t  m_ctiSEINumberChromaLut;
+  int       m_ctiSEIChromaOffset;
+  LutModel  m_ctiSEILut[MAX_NUM_COMPONENT];
+// ccv sei
+  bool      m_ccvSEIEnabled;
+  bool      m_ccvSEICancelFlag;
+  bool      m_ccvSEIPersistenceFlag;
+  bool      m_ccvSEIPrimariesPresentFlag;
+  bool      m_ccvSEIMinLuminanceValuePresentFlag;
+  bool      m_ccvSEIMaxLuminanceValuePresentFlag;
+  bool      m_ccvSEIAvgLuminanceValuePresentFlag;
+  double    m_ccvSEIPrimariesX[MAX_NUM_COMPONENT];
+  double    m_ccvSEIPrimariesY[MAX_NUM_COMPONENT];
+  double    m_ccvSEIMinLuminanceValue;
+  double    m_ccvSEIMaxLuminanceValue;
+  double    m_ccvSEIAvgLuminanceValue;
+  // sdi sei
+  bool              m_sdiSEIEnabled;
+  int               m_sdiSEIMaxLayersMinus1;
+  bool              m_sdiSEIMultiviewInfoFlag;
+  bool              m_sdiSEIAuxiliaryInfoFlag;
+  int               m_sdiSEIViewIdLenMinus1;
+  std::vector<uint32_t>  m_sdiSEILayerId;
+  std::vector<uint32_t>  m_sdiSEIViewIdVal;
+  std::vector<uint32_t>  m_sdiSEIAuxId;
+  std::vector<uint32_t>  m_sdiSEINumAssociatedPrimaryLayersMinus1;
+  // mai sei
+  bool              m_maiSEIEnabled;
+  bool              m_maiSEIIntrinsicParamFlag;
+  bool              m_maiSEIExtrinsicParamFlag;
+  int               m_maiSEINumViewsMinus1;
+  bool              m_maiSEIIntrinsicParamsEqualFlag;
+  int               m_maiSEIPrecFocalLength;
+  int               m_maiSEIPrecPrincipalPoint;
+  int               m_maiSEIPrecSkewFactor;
+  std::vector<bool> m_maiSEISignFocalLengthX;
+  std::vector<uint32_t>  m_maiSEIExponentFocalLengthX;
+  std::vector<uint32_t>  m_maiSEIMantissaFocalLengthX;
+  std::vector<bool> m_maiSEISignFocalLengthY;
+  std::vector<uint32_t>  m_maiSEIExponentFocalLengthY;
+  std::vector<uint32_t>  m_maiSEIMantissaFocalLengthY;
+  std::vector<bool> m_maiSEISignPrincipalPointX;
+  std::vector<uint32_t>  m_maiSEIExponentPrincipalPointX;
+  std::vector<uint32_t>  m_maiSEIMantissaPrincipalPointX;
+  std::vector<bool> m_maiSEISignPrincipalPointY;
+  std::vector<uint32_t>  m_maiSEIExponentPrincipalPointY;
+  std::vector<uint32_t>  m_maiSEIMantissaPrincipalPointY;
+  std::vector<bool> m_maiSEISignSkewFactor;
+  std::vector<uint32_t>  m_maiSEIExponentSkewFactor;
+  std::vector<uint32_t>  m_maiSEIMantissaSkewFactor;
+  int               m_maiSEIPrecRotationParam;
+  int               m_maiSEIPrecTranslationParam;
+  // aci sei
+  bool      m_aciSEIEnabled;
+  bool      m_aciSEICancelFlag;
+  int       m_aciSEIUseIdc;
+  int       m_aciSEIBitDepthMinus8;
+  int       m_aciSEITransparentValue;
+  int       m_aciSEIOpaqueValue;
+  bool      m_aciSEIIncrFlag;
+  bool      m_aciSEIClipFlag;
+  bool      m_aciSEIClipTypeFlag;
+  // dri sei
+  bool      m_driSEIEnabled;
+  bool      m_driSEIZNearFlag;
+  bool      m_driSEIZFarFlag;
+  bool      m_driSEIDMinFlag;
+  bool      m_driSEIDMaxFlag;
+  double    m_driSEIZNear;
+  double    m_driSEIZFar;
+  double    m_driSEIDMin;
+  double    m_driSEIDMax;
+  int       m_driSEIDepthRepresentationType;
+  int       m_driSEIDisparityRefViewId;
+  int       m_driSEINonlinearNumMinus1;
+  std::vector<uint32_t> m_driSEINonlinearModel;
+  std::string           m_arSEIFileRoot;  // Annotated region SEI - initialized from external file
   //====== Weighted Prediction ========
   bool      m_useWeightedPred;       //< Use of Weighting Prediction (P_SLICE)
   bool      m_useWeightedBiPred;    //< Use of Bi-directional Weighting Prediction (B_SLICE)
@@ -621,25 +763,28 @@ protected:
   uint32_t      m_log2ParallelMergeLevelMinus2;       ///< Parallel merge estimation region
   uint32_t      m_maxNumMergeCand;                    ///< Maximum number of merge candidates
   uint32_t      m_maxNumAffineMergeCand;              ///< Maximum number of affine merge candidates
-  uint32_t      m_maxNumTriangleCand;
-#if JVET_O0455_IBC_MAX_MERGE_NUM
+  uint32_t      m_maxNumGeoCand;
   uint32_t      m_maxNumIBCMergeCand;                 ///< Max number of IBC merge candidates
-#endif
   ScalingListMode m_useScalingListId;             ///< Using quantization matrix i.e. 0=off, 1=default, 2=file.
   std::string m_scalingListFileName;              ///< quantization matrix file name
+  bool      m_disableScalingMatrixForAlternativeColourSpace;
+  bool      m_scalingMatrixDesignatedColourSpace;
+  bool      m_sliceLevelRpl;                      ///< code reference picture lists in slice headers rather than picture header
+  bool      m_sliceLevelDblk;                     ///< code deblocking filter parameters in slice headers rather than picture header
+  bool      m_sliceLevelSao;                      ///< code SAO parameters in slice headers rather than picture header
+  bool      m_sliceLevelAlf;                      ///< code ALF parameters in slice headers rather than picture header
+  bool      m_sliceLevelWp;                       ///< code weighted prediction parameters in slice headers rather than picture header
+  bool      m_sliceLevelDeltaQp;                  ///< code delta in slice headers rather than picture header
+  bool      m_disableScalingMatrixForLfnstBlks;
   int       m_TMVPModeId;
-#if JVET_O0238_PPS_OR_SLICE
   bool      m_constantSliceHeaderParamsEnabledFlag;
   int       m_PPSDepQuantEnabledIdc;
   int       m_PPSRefPicListSPSIdc0;
   int       m_PPSRefPicListSPSIdc1;
-  int       m_PPSTemporalMVPEnabledIdc;
   int       m_PPSMvdL1ZeroIdc;
   int       m_PPSCollocatedFromL0Idc;
   uint32_t  m_PPSSixMinusMaxNumMergeCandPlus1;
-  uint32_t  m_PPSFiveMinusMaxNumSubblockMergeCandPlus1;
-  uint32_t  m_PPSMaxNumMergeCandMinusMaxNumTriangleCandPlus1;
-#endif
+  uint32_t  m_PPSMaxNumMergeCandMinusMaxNumGeoCandPlus1;
   bool      m_DepQuantEnabledFlag;
   bool      m_SignDataHidingEnabledFlag;
   bool      m_RCEnableRateControl;
@@ -654,28 +799,20 @@ protected:
   uint32_t      m_RCCpbSize;
   double    m_RCInitialCpbFullness;
 #endif
-  bool      m_TransquantBypassEnabledFlag;                    ///< transquant_bypass_enabled_flag setting in PPS.
-  bool      m_CUTransquantBypassFlagForce;                    ///< if transquant_bypass_enabled_flag, then, if true, all CU transquant bypass flags will be set to true.
-
   CostMode  m_costMode;                                       ///< The cost function to use, primarily when considering lossless coding.
+  bool      m_TSRCdisableLL;                                  ///< Disable TSRC for lossless
 
-  VPS       m_cVPS;
-  DPS       m_dps;
-  bool      m_decodingParameterSetEnabled;                   ///< enable decoding parameter set
+  OPI       m_opi;
+  bool      m_OPIEnabled;                                     ///< enable Operating Point Information (OPI)
+
+  DCI       m_dci;
+  bool      m_DCIEnabled;                                     ///< enable Decoding Capability Information (DCI)
+
   bool      m_recalculateQPAccordingToLambda;                 ///< recalculate QP value according to the lambda value
-#if HEVC_SEI
-  int       m_activeParameterSetsSEIEnabled;                  ///< enable active parameter set SEI message
-#endif
-#if FIX_HRD_O0189
   bool      m_hrdParametersPresentFlag;                       ///< enable generation of HRD parameters
-#endif
   bool      m_vuiParametersPresentFlag;                       ///< enable generation of VUI parameters
+  bool      m_samePicTimingInAllOLS;                          ///< same picture timing SEI message is used in all OLS
   bool      m_aspectRatioInfoPresentFlag;                     ///< Signals whether aspect_ratio_idc is present
-#if HEVC_SEI
-  bool      m_chromaResamplingFilterHintEnabled;              ///< Signals whether chroma sampling filter hint data is present
-  int       m_chromaResamplingHorFilterIdc;                   ///< Specifies the Index of filter to use
-  int       m_chromaResamplingVerFilterIdc;                   ///< Specifies the Index of filter to use
-#endif
   int       m_aspectRatioIdc;                                 ///< aspect_ratio_idc
   int       m_sarWidth;                                       ///< horizontal size of the sample aspect ratio
   int       m_sarHeight;                                      ///< vertical size of the sample aspect ratio
@@ -683,17 +820,19 @@ protected:
   int       m_colourPrimaries;                                ///< Indicates chromaticity coordinates of the source primaries
   int       m_transferCharacteristics;                        ///< Indicates the opto-electronic transfer characteristics of the source
   int       m_matrixCoefficients;                             ///< Describes the matrix coefficients used in deriving luma and chroma from RGB primaries
+  bool      m_progressiveSourceFlag;                          ///< Indicates if the content is progressive
+  bool      m_interlacedSourceFlag;                           ///< Indicates if the content is interlaced
   bool      m_chromaLocInfoPresentFlag;                       ///< Signals whether chroma_sample_loc_type_top_field and chroma_sample_loc_type_bottom_field are present
   int       m_chromaSampleLocTypeTopField;                    ///< Specifies the location of chroma samples for top field
   int       m_chromaSampleLocTypeBottomField;                 ///< Specifies the location of chroma samples for bottom field
   int       m_chromaSampleLocType;                            ///< Specifies the location of chroma samples for progressive content
   bool      m_overscanInfoPresentFlag;                        ///< Signals whether overscan_appropriate_flag is present
   bool      m_overscanAppropriateFlag;                        ///< Indicates whether conformant decoded pictures are suitable for display using overscan
-  bool      m_videoSignalTypePresentFlag;                     ///< Signals whether video_format, video_full_range_flag, and colour_description_present_flag are present
   bool      m_videoFullRangeFlag;                             ///< Indicates the black level and range of luma and chroma signals
 
-  bool      m_bEfficientFieldIRAPEnabled;                     ///< enable to code fields in a specific, potentially more efficient, order.
-  bool      m_bHarmonizeGopFirstFieldCoupleEnabled;
+  bool m_fieldSeqFlag;
+  bool m_efficientFieldIRAPEnabled;   /// enable to code fields in a specific, potentially more efficient, order.
+  bool m_harmonizeGopFirstFieldCoupleEnabled;
 
   std::string m_summaryOutFilename;                           ///< filename to use for producing summary output file.
   std::string m_summaryPicFilenameBase;                       ///< Base filename to use for producing summary picture output files. The actual filenames used will have I.txt, P.txt and B.txt appended.
@@ -709,19 +848,23 @@ protected:
   int         m_debugCTU;                                     ///< dbg ctu
   bool        m_bs2ModPOCAndType;
 
-
-
-#if ENABLE_SPLIT_PARALLELISM
-  int         m_numSplitThreads;
-  bool        m_forceSingleSplitThread;
-#endif
-#if ENABLE_WPP_PARALLELISM
-  int         m_numWppThreads;
-  int         m_numWppExtraLines;
-  bool        m_ensureWppBitEqual;
-#endif
+  CfgVPSParameters m_cfgVPSParameters;
 
   bool        m_alf;                                          ///< Adaptive Loop Filter
+#if JVET_W0129_ENABLE_ALF_TRUEORG
+  bool        m_alfTrueOrg;
+#else
+  bool        m_alfSaoTrueOrg;
+#endif
+  double      m_alfStrengthLuma;
+  bool        m_alfAllowPredefinedFilters;
+  double      m_ccalfStrength;
+  double      m_alfStrengthChroma;
+  double      m_alfStrengthTargetLuma;
+  double      m_alfStrengthTargetChroma;
+  double      m_ccalfStrengthTarget;
+  bool        m_ccalf;
+  int         m_ccalfQpThreshold;
 #if JVET_O0756_CALCULATE_HDRMETRICS
   double                       m_whitePointDeltaE[hdrtoolslib::NB_REF_WHITE];
   double                       m_maxSampleValue;
@@ -735,111 +878,158 @@ protected:
   int                          m_cropOffsetRight;
   int                          m_cropOffsetBottom;
   bool                         m_calculateHdrMetrics;
-#endif  
-#if JVET_O1164_RPR
+#endif
   double      m_scalingRatioHor;
   double      m_scalingRatioVer;
-  bool        m_rprEnabled;
+  bool        m_rprEnabledFlag;
+  bool        m_resChangeInClvsEnabled;
   int         m_switchPocPeriod;
   int         m_upscaledOutput;
-#endif
+  int         m_numRefLayers[MAX_VPS_LAYERS];
+  bool        m_avoidIntraInDepLayer;
 
 public:
   EncCfg()
-  : m_tileColumnWidth()
-  , m_tileRowHeight()
   {
-#if !JVET_O0525_REMOVE_PCM
-    m_PCMBitDepth[CHANNEL_TYPE_LUMA]=8;
-    m_PCMBitDepth[CHANNEL_TYPE_CHROMA]=8;
-#endif
   }
 
   virtual ~EncCfg()
   {}
-
+  std::map<uint32_t, SEIAnnotatedRegions::AnnotatedRegionObject> m_arObjects;
   void setProfile(Profile::Name profile) { m_profile = profile; }
   void setLevel(Level::Tier tier, Level::Name level) { m_levelTier = tier; m_level = level; }
-#if JVET_O0044_MULTI_SUB_PROFILE
+  bool      getFrameOnlyConstraintFlag() const { return m_frameOnlyConstraintFlag; }
+  void      setFrameOnlyConstraintFlag(bool b) { m_frameOnlyConstraintFlag = b;    }
+  bool      getMultiLayerEnabledFlag() const   { return m_multiLayerEnabledFlag;   }
+  void      setMultiLayerEnabledFlag(bool b)   { m_multiLayerEnabledFlag = b;      }
   void setNumSubProfile( uint8_t numSubProfile) { m_numSubProfile = numSubProfile; m_subProfile.resize(m_numSubProfile); }
   void setSubProfile( int i, uint32_t subProfile) { m_subProfile[i] = subProfile; }
-#else
-  void setSubProfile(uint32_t subProfile) { m_subProfile = subProfile; }
-#endif
+
+  bool      getOnePictureOnlyConstraintFlag() const                        { return m_onePictureOnlyConstraintFlag; }
+  void      setOnePictureOnlyConstraintFlag(bool b)                        { m_onePictureOnlyConstraintFlag=b; }
+
   bool      getIntraOnlyConstraintFlag() const { return m_bIntraOnlyConstraintFlag; }
-  void      setIntraOnlyConstraintFlag(bool bVal) { m_bIntraOnlyConstraintFlag = bVal; }
+  void      setIntraOnlyConstraintFlag(bool val) { m_bIntraOnlyConstraintFlag = val; }
   uint32_t  getMaxBitDepthConstraintIdc() const { return m_maxBitDepthConstraintIdc; }
   void      setMaxBitDepthConstraintIdc(uint32_t u) { m_maxBitDepthConstraintIdc = u; }
-  uint32_t  getMaxChromaFormatConstraintIdc() const { return m_maxChromaFormatConstraintIdc; }
-  void      setMaxChromaFormatConstraintIdc(uint32_t u) { m_maxChromaFormatConstraintIdc = u; }
-  bool      getFrameConstraintFlag() const { return m_bFrameConstraintFlag; }
-  void      setFrameConstraintFlag(bool bVal) { m_bFrameConstraintFlag = bVal; }
-  bool      getNoQtbttDualTreeIntraConstraintFlag() const { return m_bNoQtbttDualTreeIntraConstraintFlag; }
-  void      setNoQtbttDualTreeIntraConstraintFlag(bool bVal) { m_bNoQtbttDualTreeIntraConstraintFlag = bVal; }
+  int       getMaxChromaFormatConstraintIdc() const { return m_maxChromaFormatConstraintIdc; }
+  void      setMaxChromaFormatConstraintIdc(int u) { m_maxChromaFormatConstraintIdc = u; }
+  bool          getGciPresentFlag() const { return m_gciPresentFlag; }
+  void          setGciPresentFlag(bool b) { m_gciPresentFlag = b; }
+  bool          getAllLayersIndependentConstraintFlag() const { return m_allLayersIndependentConstraintFlag; }
+  void          setAllLayersIndependentConstraintFlag(bool val) { m_allLayersIndependentConstraintFlag = val; }
+  bool          getNoMrlConstraintFlag() const { return m_noMrlConstraintFlag; }
+  void          setNoMrlConstraintFlag(bool val) { m_noMrlConstraintFlag = val; }
+  bool          getNoIspConstraintFlag() const { return m_noIspConstraintFlag; }
+  void          setNoIspConstraintFlag(bool val) { m_noIspConstraintFlag = val; }
+  bool          getNoMipConstraintFlag() const { return m_noMipConstraintFlag; }
+  void          setNoMipConstraintFlag(bool val) { m_noMipConstraintFlag = val; }
+  bool          getNoLfnstConstraintFlag() const { return m_noLfnstConstraintFlag; }
+  void          setNoLfnstConstraintFlag(bool val) { m_noLfnstConstraintFlag = val; }
+  bool          getNoMmvdConstraintFlag() const { return m_noMmvdConstraintFlag; }
+  void          setNoMmvdConstraintFlag(bool val) { m_noMmvdConstraintFlag = val; }
+  bool          getNoSmvdConstraintFlag() const { return m_noSmvdConstraintFlag; }
+  void          setNoSmvdConstraintFlag(bool val) { m_noSmvdConstraintFlag = val; }
+  bool          getNoProfConstraintFlag() const { return m_noProfConstraintFlag; }
+  void          setNoProfConstraintFlag(bool val) { m_noProfConstraintFlag = val; }
+  bool          getNoPaletteConstraintFlag() const { return m_noPaletteConstraintFlag; }
+  void          setNoPaletteConstraintFlag(bool val) { m_noPaletteConstraintFlag = val; }
+  bool          getNoActConstraintFlag() const { return m_noActConstraintFlag; }
+  void          setNoActConstraintFlag(bool val) { m_noActConstraintFlag = val; }
+  bool          getNoLmcsConstraintFlag() const { return m_noLmcsConstraintFlag; }
+  void          setNoLmcsConstraintFlag(bool val) { m_noLmcsConstraintFlag = val; }
+  bool          getNoExplicitScaleListConstraintFlag() const { return m_noExplicitScaleListConstraintFlag; }
+  void          setNoExplicitScaleListConstraintFlag(bool val) { m_noExplicitScaleListConstraintFlag = val; }
+  bool          getNoVirtualBoundaryConstraintFlag() const { return m_noVirtualBoundaryConstraintFlag; }
+  void          setNoVirtualBoundaryConstraintFlag(bool val) { m_noVirtualBoundaryConstraintFlag = val; }
+  bool          getNoMttConstraintFlag() const { return m_noMttConstraintFlag; }
+  void          setNoMttConstraintFlag(bool val) { m_noMttConstraintFlag = val; }
+  bool      getNoChromaQpOffsetConstraintFlag() const { return m_noChromaQpOffsetConstraintFlag; }
+  void      setNoChromaQpOffsetConstraintFlag(bool bVal) { m_noChromaQpOffsetConstraintFlag = bVal; }
+  bool      getNoQtbttDualTreeIntraConstraintFlag() const { return m_noQtbttDualTreeIntraConstraintFlag; }
+  void      setNoQtbttDualTreeIntraConstraintFlag(bool val) { m_noQtbttDualTreeIntraConstraintFlag = val; }
+  int       getMaxLog2CtuSizeConstraintIdc() const { return m_maxLog2CtuSizeConstraintIdc; }
+  void      setMaxLog2CtuSizeConstraintIdc(int u) { m_maxLog2CtuSizeConstraintIdc = u; }
   bool      getNoPartitionConstraintsOverrideConstraintFlag() const { return m_noPartitionConstraintsOverrideConstraintFlag; }
-  void      setNoPartitionConstraintsOverrideConstraintFlag(bool bVal) { m_noPartitionConstraintsOverrideConstraintFlag = bVal; }
-  bool      getNoSaoConstraintFlag() const { return m_bNoSaoConstraintFlag; }
-  void      setNoSaoConstraintFlag(bool bVal) { m_bNoSaoConstraintFlag = bVal; }
-  bool      getNoAlfConstraintFlag() const { return m_bNoAlfConstraintFlag; }
-  void      setNoAlfConstraintFlag(bool bVal) { m_bNoAlfConstraintFlag = bVal; }
-#if !JVET_O0525_REMOVE_PCM
-  bool      getNoPcmConstraintFlag() const { return m_bNoPcmConstraintFlag; }
-  void      setNoPcmConstraintFlag(bool bVal) { m_bNoPcmConstraintFlag = bVal; }
-#endif
-  bool      getNoRefWraparoundConstraintFlag() const { return m_bNoRefWraparoundConstraintFlag; }
-  void      setNoRefWraparoundConstraintFlag(bool bVal) { m_bNoRefWraparoundConstraintFlag = bVal; }
-  bool      getNoTemporalMvpConstraintFlag() const { return m_bNoTemporalMvpConstraintFlag; }
-  void      setNoTemporalMvpConstraintFlag(bool bVal) { m_bNoTemporalMvpConstraintFlag = bVal; }
-  bool      getNoSbtmvpConstraintFlag() const { return m_bNoSbtmvpConstraintFlag; }
-  void      setNoSbtmvpConstraintFlag(bool bVal) { m_bNoSbtmvpConstraintFlag = bVal; }
-  bool      getNoAmvrConstraintFlag() const { return m_bNoAmvrConstraintFlag; }
-  void      setNoAmvrConstraintFlag(bool bVal) { m_bNoAmvrConstraintFlag = bVal; }
-  bool      getNoBdofConstraintFlag() const { return m_bNoBdofConstraintFlag; }
-  void      setNoBdofConstraintFlag(bool bVal) { m_bNoBdofConstraintFlag = bVal; }
+  void      setNoPartitionConstraintsOverrideConstraintFlag(bool val) { m_noPartitionConstraintsOverrideConstraintFlag = val; }
+  bool      getNoSaoConstraintFlag() const { return m_noSaoConstraintFlag; }
+  void      setNoSaoConstraintFlag(bool val) { m_noSaoConstraintFlag = val; }
+  bool      getNoAlfConstraintFlag() const { return m_noAlfConstraintFlag; }
+  void      setNoAlfConstraintFlag(bool val) { m_noAlfConstraintFlag = val; }
+  bool      getNoCCAlfConstraintFlag() const { return m_noCCAlfConstraintFlag; }
+  void      setNoCCAlfConstraintFlag(bool val) { m_noCCAlfConstraintFlag = val; }
+  bool      getWeightedPredictionConstraintFlag() const { return m_noWeightedPredictionConstraintFlag; }
+  void      setNoWeightedPredictionConstraintFlag(bool val) { m_noWeightedPredictionConstraintFlag = val; }
+  bool      getNoRefWraparoundConstraintFlag() const { return m_noRefWraparoundConstraintFlag; }
+  void      setNoRefWraparoundConstraintFlag(bool val) { m_noRefWraparoundConstraintFlag = val; }
+  bool      getNoTemporalMvpConstraintFlag() const { return m_noTemporalMvpConstraintFlag; }
+  void      setNoTemporalMvpConstraintFlag(bool val) { m_noTemporalMvpConstraintFlag = val; }
+  bool      getNoSbtmvpConstraintFlag() const { return m_noSbtmvpConstraintFlag; }
+  void      setNoSbtmvpConstraintFlag(bool val) { m_noSbtmvpConstraintFlag = val; }
+  bool      getNoAmvrConstraintFlag() const { return m_noAmvrConstraintFlag; }
+  void      setNoAmvrConstraintFlag(bool val) { m_noAmvrConstraintFlag = val; }
+  bool      getNoBdofConstraintFlag() const { return m_noBdofConstraintFlag; }
+  void      setNoBdofConstraintFlag(bool val) { m_noBdofConstraintFlag = val; }
   bool      getNoDmvrConstraintFlag() const { return m_noDmvrConstraintFlag; }
-  void      setNoDmvrConstraintFlag(bool bVal) { m_noDmvrConstraintFlag = bVal; }
-  bool      getNoCclmConstraintFlag() const { return m_bNoCclmConstraintFlag; }
-  void      setNoCclmConstraintFlag(bool bVal) { m_bNoCclmConstraintFlag = bVal; }
-  bool      getNoMtsConstraintFlag() const { return m_bNoMtsConstraintFlag; }
-  void      setNoMtsConstraintFlag(bool bVal) { m_bNoMtsConstraintFlag = bVal; }
+  void      setNoDmvrConstraintFlag(bool val) { m_noDmvrConstraintFlag = val; }
+  bool      getNoCclmConstraintFlag() const { return m_noCclmConstraintFlag; }
+  void      setNoCclmConstraintFlag(bool val) { m_noCclmConstraintFlag = val; }
+  bool      getNoMtsConstraintFlag() const { return m_noMtsConstraintFlag; }
+  void      setNoMtsConstraintFlag(bool val) { m_noMtsConstraintFlag = val; }
   bool      getNoSbtConstraintFlag() const { return m_noSbtConstraintFlag; }
-  void      setNoSbtConstraintFlag(bool bVal) { m_noSbtConstraintFlag = bVal; }
-  bool      getNoAffineMotionConstraintFlag() const { return m_bNoAffineMotionConstraintFlag; }
-  void      setNoAffineMotionConstraintFlag(bool bVal) { m_bNoAffineMotionConstraintFlag = bVal; }
-  bool      getNoGbiConstraintFlag() const { return m_bNoGbiConstraintFlag; }
-  void      setNoGbiConstraintFlag(bool bVal) { m_bNoGbiConstraintFlag = bVal; }
+  void      setNoSbtConstraintFlag(bool val) { m_noSbtConstraintFlag = val; }
+  bool      getNoAffineMotionConstraintFlag() const { return m_noAffineMotionConstraintFlag; }
+  void      setNoAffineMotionConstraintFlag(bool val) { m_noAffineMotionConstraintFlag = val; }
+  bool      getNoBcwConstraintFlag() const { return m_noBcwConstraintFlag; }
+  void      setNoBcwConstraintFlag(bool val) { m_noBcwConstraintFlag = val; }
   bool      getNoIbcConstraintFlag() const { return m_noIbcConstraintFlag; }
-  void      setNoIbcConstraintFlag(bool bVal) { m_noIbcConstraintFlag = bVal; }
-  bool      getNoMhIntraConstraintFlag() const { return m_bNoMhIntraConstraintFlag; }
-  void      setNoMhIntraConstraintFlag(bool bVal) { m_bNoMhIntraConstraintFlag = bVal; }
-  bool      getNoFPelMmvdConstraintFlag() const { return m_noFPelMmvdConstraintFlag; }
-  void      setNoFPelMmvdConstraintFlag(bool bVal) { m_noFPelMmvdConstraintFlag = bVal; }
-  bool      getNoTriangleConstraintFlag() const { return m_bNoTriangleConstraintFlag; }
-  void      setNoTriangleConstraintFlag(bool bVal) { m_bNoTriangleConstraintFlag = bVal; }
-  bool      getNoLadfConstraintFlag() const { return m_bNoLadfConstraintFlag; }
-  void      setNoLadfConstraintFlag(bool bVal) { m_bNoLadfConstraintFlag = bVal; }
+  void      setNoIbcConstraintFlag(bool val) { m_noIbcConstraintFlag = val; }
+  bool      getNoCiipConstraintFlag() const { return m_noCiipConstraintFlag; }
+  void      setNoCiipConstraintFlag(bool val) { m_noCiipConstraintFlag = val; }
+  bool      getNoGeoConstraintFlag() const { return m_noGeoConstraintFlag; }
+  void      setNoGeoConstraintFlag(bool val) { m_noGeoConstraintFlag = val; }
+  bool      getNoLadfConstraintFlag() const { return m_noLadfConstraintFlag; }
+  void      setNoLadfConstraintFlag(bool val) { m_noLadfConstraintFlag = val; }
   bool      getNoTransformSkipConstraintFlag() const { return m_noTransformSkipConstraintFlag; }
-  void      setNoTransformSkipConstraintFlag(bool bVal) { m_noTransformSkipConstraintFlag = bVal; }
-#if JVET_O1136_TS_BDPCM_SIGNALLING
+  void      setNoTransformSkipConstraintFlag(bool val) { m_noTransformSkipConstraintFlag = val; }
+  bool      getNoLumaTransformSize64ConstraintFlag() const { return m_noLumaTransformSize64ConstraintFlag; }
+  void      setNoLumaTransformSize64ConstraintFlag(bool val) { m_noLumaTransformSize64ConstraintFlag = val; }
   bool      getNoBDPCMConstraintFlag() const { return m_noBDPCMConstraintFlag; }
-  void      setNoBDPCMConstraintFlag(bool bVal) { m_noBDPCMConstraintFlag = bVal; }
-#endif
-#if JVET_O0376_SPS_JOINTCBCR_FLAG
+  void      setNoBDPCMConstraintFlag(bool val) { m_noBDPCMConstraintFlag = val; }
   bool      getNoJointCbCrConstraintFlag() const { return m_noJointCbCrConstraintFlag; }
-  void      setNoJointCbCrConstraintFlag(bool bVal) { m_noJointCbCrConstraintFlag = bVal; }
+  void      setNoJointCbCrConstraintFlag(bool val) { m_noJointCbCrConstraintFlag = val; }
+  bool      getNoCuQpDeltaConstraintFlag() const { return m_noCuQpDeltaConstraintFlag; }
+  void      setNoCuQpDeltaConstraintFlag(bool val) { m_noCuQpDeltaConstraintFlag = val; }
+  bool      getNoDepQuantConstraintFlag() const { return m_noDepQuantConstraintFlag; }
+  void      setNoDepQuantConstraintFlag(bool val) { m_noDepQuantConstraintFlag = val; }
+  bool      getNoSignDataHidingConstraintFlag() const { return m_noSignDataHidingConstraintFlag; }
+  void      setNoSignDataHidingConstraintFlag(bool val) { m_noSignDataHidingConstraintFlag = val; }
+  bool      getNoTrailConstraintFlag() const { return m_noTrailConstraintFlag; }
+  void      setNoTrailConstraintFlag(bool val) { m_noTrailConstraintFlag = val; }
+  bool      getNoStsaConstraintFlag() const { return m_noStsaConstraintFlag; }
+  void      setNoStsaConstraintFlag(bool val) { m_noStsaConstraintFlag = val; }
+  bool      getNoRaslConstraintFlag() const { return m_noRaslConstraintFlag; }
+  void      setNoRaslConstraintFlag(bool val) { m_noRaslConstraintFlag = val; }
+  bool      getNoRadlConstraintFlag() const { return m_noRadlConstraintFlag; }
+  void      setNoRadlConstraintFlag(bool val) { m_noRadlConstraintFlag = val; }
+  bool      getNoIdrConstraintFlag() const { return m_noIdrConstraintFlag; }
+  void      setNoIdrConstraintFlag(bool val) { m_noIdrConstraintFlag = val; }
+  bool      getNoCraConstraintFlag() const { return m_noCraConstraintFlag; }
+  void      setNoCraConstraintFlag(bool val) { m_noCraConstraintFlag = val; }
+  bool      getNoGdrConstraintFlag() const { return m_noGdrConstraintFlag; }
+  void      setNoGdrConstraintFlag(bool val) { m_noGdrConstraintFlag = val; }
+  bool      getNoApsConstraintFlag() const { return m_noApsConstraintFlag; }
+  void      setNoApsConstraintFlag(bool val) { m_noApsConstraintFlag = val; }
+#if JVET_W2005_RANGE_EXTENSION_PROFILES
+  bool      getGeneralLowerBitRateConstraintFlag() const { return m_generalLowerBitRateConstraintFlag; }
+  void      setGeneralLowerBitRateConstraintFlag(bool val) { m_generalLowerBitRateConstraintFlag = val; }
 #endif
-  bool      getNoQpDeltaConstraintFlag() const { return m_bNoQpDeltaConstraintFlag; }
-  void      setNoQpDeltaConstraintFlag(bool bVal) { m_bNoQpDeltaConstraintFlag = bVal; }
-  bool      getNoDepQuantConstraintFlag() const { return m_bNoDepQuantConstraintFlag; }
-  void      setNoDepQuantConstraintFlag(bool bVal) { m_bNoDepQuantConstraintFlag = bVal; }
-  bool      getNoSignDataHidingConstraintFlag() const { return m_bNoSignDataHidingConstraintFlag; }
-  void      setNoSignDataHidingConstraintFlag(bool bVal) { m_bNoSignDataHidingConstraintFlag = bVal; }
 
   void      setFrameRate                    ( int   i )      { m_iFrameRate = i; }
   void      setFrameSkip                    ( uint32_t  i )      { m_FrameSkip = i; }
   void      setTemporalSubsampleRatio       ( uint32_t  i )      { m_temporalSubsampleRatio = i; }
-  void      setSourceWidth                  ( int   i )      { m_iSourceWidth = i; }
-  void      setSourceHeight                 ( int   i )      { m_iSourceHeight = i; }
+  void      setSourceWidth                  ( int   i )      { m_sourceWidth = i; }
+  void      setSourceHeight                 ( int   i )      { m_sourceHeight = i; }
 
   Window   &getConformanceWindow()                           { return m_conformanceWindow; }
   void      setConformanceWindow (int confLeft, int confRight, int confTop, int confBottom ) { m_conformanceWindow.setWindow (confLeft, confRight, confTop, confBottom); }
@@ -858,12 +1048,18 @@ public:
   bool      getPrintSequenceMSE             ()         const { return m_printSequenceMSE;           }
   void      setPrintSequenceMSE             (bool value)     { m_printSequenceMSE = value;          }
 
+  bool      getPrintMSSSIM                  ()         const { return m_printMSSSIM;               }
+  void      setPrintMSSSIM                  (bool value)     { m_printMSSSIM = value;              }
+
+  bool      getPrintWPSNR                   ()         const { return m_printWPSNR;               }
+  void      setPrintWPSNR                   (bool value)     { m_printWPSNR = value;              }
+
   bool      getCabacZeroWordPaddingEnabled()           const { return m_cabacZeroWordPaddingEnabled;  }
   void      setCabacZeroWordPaddingEnabled(bool value)       { m_cabacZeroWordPaddingEnabled = value; }
 
   //====== Coding Structure ========
-  void      setIntraPeriod                  (int   i)        { m_uiIntraPeriod = i;                   }
-  void      setDecodingRefreshType          ( int   i )      { m_uiDecodingRefreshType = (uint32_t)i; }
+  void      setIntraPeriod                  (int   i)        { m_intraPeriod = i;                   }
+  void      setDecodingRefreshType          ( int   i )      { m_decodingRefreshType = (uint32_t)i; }
   void      setReWriteParamSets             ( bool  b )      { m_rewriteParamSets = b; }
   void      setIDRRefParamListPresent       ( bool  b )      { m_idrRefParamList  = b; }
   bool      getIDRRefParamListPresent       ()        const  { return m_idrRefParamList; }
@@ -890,23 +1086,20 @@ public:
   }
   const RPLEntry &getRPLEntry(int L01, int idx) const { return (L01 == 0) ? m_RPLList0[idx] : m_RPLList1[idx]; }
   int       getRPLCandidateSize(int L01) const { return  (L01 == 0) ? m_numRPLList0 : m_numRPLList1; }
-  void      setEncodedFlag(uint32_t  i, bool value) { m_RPLList0[i].m_isEncoded = value; m_RPLList1[i].m_isEncoded = value; }
+  void      setEncodedFlag(uint32_t  i, bool value) { m_RPLList0[i].m_isEncoded = value; m_RPLList1[i].m_isEncoded = value; m_GOPList[i].m_isEncoded = value; }
   void      setMaxDecPicBuffering           ( uint32_t u, uint32_t tlayer ) { m_maxDecPicBuffering[tlayer] = u;    }
-  void      setNumReorderPics               ( int  i, uint32_t tlayer ) { m_numReorderPics[tlayer] = i;    }
-#if JVET_N0494_DRAP
+  void      setMaxNumReorderPics            ( int  i, uint32_t tlayer ) { m_maxNumReorderPics[tlayer] = i;    }
   void      setDrapPeriod                   (int drapPeriod) { m_drapPeriod = drapPeriod; }
-#endif
+  void      setEdrapPeriod                  (int edrapPeriod) { m_edrapPeriod = edrapPeriod; }
 
   void      setBaseQP                       ( int   i )      { m_iQP = i; }
 #if X0038_LAMBDA_FROM_QP_CAPABILITY
   void      setIntraQPOffset                ( int   i )         { m_intraQPOffset = i; }
   void      setLambdaFromQPEnable           ( bool  b )         { m_lambdaFromQPEnable = b; }
 #endif
-#if JVET_O0650_SIGNAL_CHROMAQP_MAPPING_TABLE
   void      setChromaQpMappingTableParams   (const ChromaQpMappingTableParams &params) { m_chromaQpMappingTableParams = params; }
-#endif
 
-  void      setPad                          ( int*  iPad                   )      { for ( int i = 0; i < 2; i++ ) m_aiPad[i] = iPad[i]; }
+  void      setSourcePadding                ( int*  padding)                { for ( int i = 0; i < 2; i++ ) m_sourcePadding[i] = padding[i]; }
 
   int       getMaxRefPicNum                 ()                              { return m_iMaxRefPicNum;           }
   void      setMaxRefPicNum                 ( int iMaxRefPicNum )           { m_iMaxRefPicNum = iMaxRefPicNum;  }
@@ -916,6 +1109,21 @@ public:
 
   void      setCTUSize                      ( unsigned  u )      { m_CTUSize  = u; }
   void      setMinQTSizes                   ( unsigned* minQT)   { m_uiMinQT[0] = minQT[0]; m_uiMinQT[1] = minQT[1]; m_uiMinQT[2] = minQT[2]; }
+  void      setMaxBTSizes                   ( unsigned* maxBT)   { m_uiMaxBT[0] = maxBT[0]; m_uiMaxBT[1] = maxBT[1]; m_uiMaxBT[2] = maxBT[2]; }
+  void      setMaxTTSizes                   ( unsigned* maxTT)   { m_uiMaxTT[0] = maxTT[0]; m_uiMaxTT[1] = maxTT[1]; m_uiMaxTT[2] = maxTT[2]; }
+#if GDR_ENABLED
+  void      setGdrEnabled(bool b)       { m_gdrEnabled  = b; }
+  void      setGdrPeriod(unsigned u)    { m_gdrPeriod   = u; }
+  void      setGdrPocStart(unsigned u)  { m_gdrPocStart = u; }
+  void      setGdrInterval(int i)       { m_gdrInterval = i; }  
+  void      setGdrNoHash(bool b)        { m_gdrNoHash   = b; }    
+
+  bool      getGdrEnabled()             { return m_gdrEnabled;  }
+  unsigned  getGdrPeriod()              { return m_gdrPeriod;   }
+  unsigned  getGdrPocStart()            { return m_gdrPocStart; }
+  int       getGdrInterval()            { return m_gdrInterval; }  
+  bool      getGdrNoHash()              { return m_gdrNoHash;   }  
+#endif
   void      setMaxMTTHierarchyDepth         ( unsigned uiMaxMTTHierarchyDepth, unsigned uiMaxMTTHierarchyDepthI, unsigned uiMaxMTTHierarchyDepthIChroma )
                                                              { m_uiMaxMTTHierarchyDepth = uiMaxMTTHierarchyDepth; m_uiMaxMTTHierarchyDepthI = uiMaxMTTHierarchyDepthI; m_uiMaxMTTHierarchyDepthIChroma = uiMaxMTTHierarchyDepthIChroma; }
   unsigned  getMaxMTTHierarchyDepth         ()         const { return m_uiMaxMTTHierarchyDepth; }
@@ -926,7 +1134,50 @@ public:
   bool      getUseSplitConsOverride         ()         const { return m_useSplitConsOverride; }
   void      setDualITree                    ( bool b )       { m_dualITree = b; }
   bool      getDualITree                    ()         const { return m_dualITree; }
+  void      setSubPicInfoPresentFlag                        (bool b)                    { m_subPicInfoPresentFlag = b; }
+  void      setNumSubPics                               ( uint32_t u )              { CHECK( u >= MAX_NUM_SUB_PICS, "Maximum number of subpictures exceeded" );
+                                                                                      m_numSubPics = u;
+                                                                                      m_subPicCtuTopLeftX.resize(m_numSubPics);
+                                                                                      m_subPicCtuTopLeftY.resize(m_numSubPics);
+                                                                                      m_subPicWidth.resize(m_numSubPics);
+                                                                                      m_subPicHeight.resize(m_numSubPics);
+                                                                                      m_subPicTreatedAsPicFlag.resize(m_numSubPics);
+                                                                                      m_loopFilterAcrossSubpicEnabledFlag.resize(m_numSubPics);
+                                                                                      m_subPicId.resize(m_numSubPics);
+                                                                                    }
+  void      setSubPicSameSizeFlag                       (bool b)                    { m_subPicSameSizeFlag = b; }
+  void      setSubPicCtuTopLeftX                        (uint32_t u, int i)         { m_subPicCtuTopLeftX[i] = u; }
+  void      setSubPicCtuTopLeftY                        (uint32_t u, int i)         { m_subPicCtuTopLeftY[i] = u; }
+  void      setSubPicWidth                              (uint32_t u, int i)         { m_subPicWidth[i] = u; }
+  void      setSubPicHeight                             (uint32_t u, int i)         { m_subPicHeight[i] = u; }
+  void      setSubPicTreatedAsPicFlag                   (bool b, int i)             { m_subPicTreatedAsPicFlag[i] = b; }
+  void      setLoopFilterAcrossSubpicEnabledFlag        (bool b, int i)             { m_loopFilterAcrossSubpicEnabledFlag[i] = b; }
+  void      setSubPicCtuTopLeftX                        (const std::vector<uint32_t> &v)   { CHECK(v.size() != (m_subPicSameSizeFlag ? 0 : m_numSubPics), "number of vector entries must be equal to numSubPics(subPicSameSize=0) or 0(subPicSameSize=1)"); m_subPicCtuTopLeftX = v; }
+  void      setSubPicCtuTopLeftY                        (const std::vector<uint32_t> &v)   { CHECK(v.size() != (m_subPicSameSizeFlag ? 0 : m_numSubPics), "number of vector entries must be equal to numSubPics(subPicSameSize=0) or 0(subPicSameSize=1)"); m_subPicCtuTopLeftY = v; }
+  void      setSubPicWidth                              (const std::vector<uint32_t> &v)   { CHECK(v.size() != (m_subPicSameSizeFlag ? 1 : m_numSubPics), "number of vector entries must be equal to numSubPics(subPicSameSize=0) or 1(subPicSameSize=1)"); m_subPicWidth = v; }
+  void      setSubPicHeight                             (const std::vector<uint32_t> &v)   { CHECK(v.size() != (m_subPicSameSizeFlag ? 1 : m_numSubPics), "number of vector entries must be equal to numSubPics(subPicSameSize=0) or 1(subPicSameSize=1)"); m_subPicHeight = v; }
+  void      setSubPicTreatedAsPicFlag                   (const std::vector<bool> &v)       { CHECK(v.size()!=m_numSubPics, "number of vector entries must be equal to numSubPics") ;m_subPicTreatedAsPicFlag = v; }
+  void      setLoopFilterAcrossSubpicEnabledFlag        (const std::vector<bool> &v)       { CHECK(v.size()!=m_numSubPics, "number of vector entries must be equal to numSubPics") ;m_loopFilterAcrossSubpicEnabledFlag = v; }
 
+  void      setSubPicIdMappingExplicitlySignalledFlag   (bool b)                    { m_subPicIdMappingExplicitlySignalledFlag = b; }
+  void      setSubPicIdMappingInSpsFlag                 (bool b)                    { m_subPicIdMappingInSpsFlag = b; }
+  void      setSubPicIdLen                              (uint32_t u)                { m_subPicIdLen = u; }
+  void      setSubPicId                                 (uint32_t b, int i)         { m_subPicId[i] = b; }
+  void      setSubPicId                                 (const std::vector<uint16_t> &v)   { CHECK(v.size()!=m_numSubPics, "number of vector entries must be equal to numSubPics"); m_subPicId = v; }
+
+  bool      getSubPicInfoPresentFlag                    ()                          { return m_subPicInfoPresentFlag; }
+  bool      getSubPicSameSizeFlag                       ()                          { return m_subPicSameSizeFlag; }
+  uint32_t  getNumSubPics                               ()                          { return m_numSubPics; }
+  uint32_t  getSubPicCtuTopLeftX                        (int i)                     { return m_subPicCtuTopLeftX[i]; }
+  uint32_t  getSubPicCtuTopLeftY                        (int i)                     { return m_subPicCtuTopLeftY[i]; }
+  uint32_t  getSubPicWidth                              (int i)                     { return m_subPicWidth[i]; }
+  uint32_t  getSubPicHeight                             (int i)                     { return m_subPicHeight[i]; }
+  bool      getSubPicTreatedAsPicFlag                   (int i)                     { return m_subPicTreatedAsPicFlag[i]; }
+  uint32_t  getLoopFilterAcrossSubpicEnabledFlag        (int i)                     { return m_loopFilterAcrossSubpicEnabledFlag[i]; }
+  bool      getSubPicIdMappingExplicitlySignalledFlag   ()                          { return m_subPicIdMappingExplicitlySignalledFlag; }
+  bool      getSubPicIdMappingInSpsFlag                 ()                          { return m_subPicIdMappingInSpsFlag; }
+  uint32_t  getSubPicIdLen                              ()                          { return m_subPicIdLen; }
+  uint32_t  getSubPicId                                 (int i)                     { return m_subPicId[i]; }
   void      setLFNST                        ( bool b )       { m_LFNST = b; }
   bool      getLFNST()                                 const { return m_LFNST; }
   void      setUseFastLFNST                 ( bool b )       { m_useFastLFNST = b; }
@@ -934,27 +1185,26 @@ public:
 
   void      setUseLMChroma                  ( int n )        { m_LMChroma = n; }
   int       getUseLMChroma()                           const { return m_LMChroma; }
-  void      setCclmCollocatedChromaFlag     ( bool b )       { m_cclmCollocatedChromaFlag = b; }
-  bool      getCclmCollocatedChromaFlag     ()         const { return m_cclmCollocatedChromaFlag; }
+  void      setHorCollocatedChromaFlag( bool b )             { m_horCollocatedChromaFlag = b; }
+  bool      getHorCollocatedChromaFlag()               const { return m_horCollocatedChromaFlag; }
+  void      setVerCollocatedChromaFlag( bool b )             { m_verCollocatedChromaFlag = b; }
+  bool      getVerCollocatedChromaFlag()               const { return m_verCollocatedChromaFlag; }
 
-  void      setSubPuMvpMode(int n)          { m_SubPuMvpMode = n; }
-  bool      getSubPuMvpMode()         const { return m_SubPuMvpMode; }
+  void setSbTmvpEnabledFlag(bool val) { m_sbTmvpEnableFlag = val; }
 
   void      setAffine                       ( bool b )       { m_Affine = b; }
   bool      getAffine                       ()         const { return m_Affine; }
   void      setAffineType( bool b )                          { m_AffineType = b; }
   bool      getAffineType()                            const { return m_AffineType; }
-#if JVET_O0070_PROF
   void      setPROF                         (bool b)         { m_PROF = b; }
   bool      getPROF                         ()         const { return m_PROF; }
-#endif
   void      setBIO(bool b)                                   { m_BIO = b; }
   bool      getBIO()                                   const { return m_BIO; }
 
-  void      setIntraMTSMaxCand              ( unsigned u )   { m_IntraMTSMaxCand = u; }
-  unsigned  getIntraMTSMaxCand              ()         const { return m_IntraMTSMaxCand; }
-  void      setInterMTSMaxCand              ( unsigned u )   { m_InterMTSMaxCand = u; }
-  unsigned  getInterMTSMaxCand              ()         const { return m_InterMTSMaxCand; }
+  void      setMTSIntraMaxCand              ( unsigned u )   { m_MTSIntraMaxCand = u; }
+  unsigned  getMTSIntraMaxCand              ()         const { return m_MTSIntraMaxCand; }
+  void      setMTSInterMaxCand              ( unsigned u )   { m_MTSInterMaxCand = u; }
+  unsigned  getMTSInterMaxCand              ()         const { return m_MTSInterMaxCand; }
   void      setIntraMTS                     ( bool b )       { m_IntraMTS = b; }
   bool      getIntraMTS                     ()         const { return m_IntraMTS; }
   void      setInterMTS                     ( bool b )       { m_InterMTS = b; }
@@ -964,14 +1214,17 @@ public:
   void      setUseSBT                       ( bool b )       { m_SBT = b; }
   bool      getUseSBT                       ()         const { return m_SBT; }
 
+  void      setSBTFast64WidthTh             ( int  b )       { m_SBTFast64WidthTh = b; }
+  int       getSBTFast64WidthTh             ()         const { return m_SBTFast64WidthTh; }
+
   void      setUseCompositeRef              (bool b)         { m_compositeRefEnabled = b; }
   bool      getUseCompositeRef              ()         const { return m_compositeRefEnabled; }
   void      setUseSMVD                      ( bool b )       { m_SMVD = b; }
   bool      getUseSMVD                      ()         const { return m_SMVD; }
-  void      setUseGBi                       ( bool b )       { m_GBi = b; }
-  bool      getUseGBi                       ()         const { return m_GBi; }
-  void      setUseGBiFast                   ( uint32_t b )   { m_GBiFast = b; }
-  bool      getUseGBiFast                   ()         const { return m_GBiFast; }
+  void      setUseBcw                       ( bool b )       { m_bcw = b; }
+  bool      getUseBcw                       ()         const { return m_bcw; }
+  void      setUseBcwFast                   ( uint32_t b )   { m_BcwFast = b; }
+  bool      getUseBcwFast                   ()         const { return m_BcwFast; }
 
 #if LUMA_ADAPTIVE_DEBLOCKING_FILTER_QP_OFFSET
   void      setUseLadf                      ( bool b )       { m_LadfEnabled = b; }
@@ -985,10 +1238,10 @@ public:
 
 #endif
 
-  void      setUseMHIntra                   ( bool b )       { m_MHIntra = b; }
-  bool      getUseMHIntra                   ()         const { return m_MHIntra; }
-  void      setUseTriangle                  ( bool b )       { m_Triangle = b; }
-  bool      getUseTriangle                  ()         const { return m_Triangle; }
+  void      setUseCiip                   ( bool b )       { m_ciip = b; }
+  bool      getUseCiip                   ()         const { return m_ciip; }
+  void      setUseGeo                       ( bool b )       { m_Geo = b; }
+  bool      getUseGeo                       ()         const { return m_Geo; }
   void      setAllowDisFracMMVD             ( bool b )       { m_allowDisFracMMVD = b;    }
   bool      getAllowDisFracMMVD             ()         const { return m_allowDisFracMMVD; }
   void      setUseHashME                    ( bool b )       { m_HashME = b; }
@@ -1003,18 +1256,14 @@ public:
   bool      getMMVD                         ()         const { return m_MMVD; }
   void      setMmvdDisNum                   ( int b )        { m_MmvdDisNum = b; }
   int       getMmvdDisNum                   ()         const { return m_MmvdDisNum; }
- #if !JVET_O1136_TS_BDPCM_SIGNALLING 
-  void      setRDPCM                     ( bool b )       { m_RdpcmMode = b; }
-  bool      getRDPCM                     ()         const { return m_RdpcmMode; }
- #endif 
-#if JVET_O0119_BASE_PALETTE_444
+  void      setRGBFormatFlag(bool value) { m_rgbFormat = value; }
+  bool      getRGBFormatFlag()                         const { return m_rgbFormat; }
+  void      setUseColorTrans(bool value) { m_useColorTrans = value; }
+  bool      getUseColorTrans()                         const { return m_useColorTrans; }
   void      setPLTMode                   ( unsigned n)    { m_PLTMode = n; }
   unsigned  getPLTMode                   ()         const { return m_PLTMode; }
-#endif
-#if JVET_O0376_SPS_JOINTCBCR_FLAG
   void      setJointCbCr                    ( bool b )       { m_JointCbCrMode = b; }
   bool      getJointCbCr                    ()         const { return m_JointCbCrMode; }
-#endif
   void      setIBCMode                      (unsigned n)     { m_IBCMode = n; }
   unsigned  getIBCMode                      ()         const { return m_IBCMode; }
   void      setIBCLocalSearchRangeX         (unsigned n)     { m_IBCLocalSearchRangeX = n; }
@@ -1036,8 +1285,10 @@ public:
   unsigned  getWrapAroundOffset             ()         const { return m_wrapAroundOffset; }
 
   // ADD_NEW_TOOL : (encoder lib) add access functions here
-  void      setLoopFilterAcrossVirtualBoundariesDisabledFlag( bool b ) { m_loopFilterAcrossVirtualBoundariesDisabledFlag = b; }
-  bool      getLoopFilterAcrossVirtualBoundariesDisabledFlag() const { return m_loopFilterAcrossVirtualBoundariesDisabledFlag; }
+  void      setVirtualBoundariesEnabledFlag( bool b ) { m_virtualBoundariesEnabledFlag = b; }
+  bool      getVirtualBoundariesEnabledFlag() const { return m_virtualBoundariesEnabledFlag; }
+  void      setVirtualBoundariesPresentFlag( bool b ) { m_virtualBoundariesPresentFlag = b; }
+  bool      getVirtualBoundariesPresentFlag() const { return m_virtualBoundariesPresentFlag; }
   void      setNumVerVirtualBoundaries      ( unsigned u )   { m_numVerVirtualBoundaries = u; }
   unsigned  getNumVerVirtualBoundaries      ()         const { return m_numVerVirtualBoundaries; }
   void      setNumHorVirtualBoundaries      ( unsigned u )   { m_numHorVirtualBoundaries = u; }
@@ -1048,21 +1299,22 @@ public:
   unsigned  getVirtualBoundariesPosY        ( unsigned idx ) const { return m_virtualBoundariesPosY[idx]; }
   void      setUseISP                       ( bool b )       { m_ISP = b; }
   bool      getUseISP                       ()         const { return m_ISP; }
-  void      setReshaper                     ( bool b )                   { m_lumaReshapeEnable = b; }
-  bool      getReshaper                     () const                     { return m_lumaReshapeEnable; }
+  void      setLmcs                         ( bool b )                   { m_lmcsEnabled = b; }
+  bool      getLmcs                         () const                     { return m_lmcsEnabled; }
   void      setReshapeSignalType            ( uint32_t signalType )      { m_reshapeSignalType = signalType; }
   uint32_t  getReshapeSignalType            () const                     { return m_reshapeSignalType; }
   void      setReshapeIntraCMD              (uint32_t intraCMD)          { m_intraCMD = intraCMD; }
   uint32_t  getReshapeIntraCMD              ()                           { return m_intraCMD; }
   void      setReshapeCW                    (const ReshapeCW &reshapeCW) { m_reshapeCW = reshapeCW; }
   const ReshapeCW& getReshapeCW             ()                           { return m_reshapeCW; }
+  void      setReshapeCSoffset              (int CSoffset)          { m_CSoffset = CSoffset; }
+  int       getReshapeCSoffset              ()                      { return m_CSoffset; }
   void      setMaxCUWidth                   ( uint32_t  u )      { m_maxCUWidth  = u; }
   uint32_t      getMaxCUWidth                   () const         { return m_maxCUWidth; }
   void      setMaxCUHeight                  ( uint32_t  u )      { m_maxCUHeight = u; }
   uint32_t      getMaxCUHeight                  () const         { return m_maxCUHeight; }
-  void      setMaxCodingDepth               ( uint32_t  u )      { m_maxTotalCUDepth = u; }
-  uint32_t      getMaxCodingDepth               () const         { return m_maxTotalCUDepth; }
-  void      setLog2DiffMaxMinCodingBlockSize( uint32_t  u )      { m_log2DiffMaxMinCodingBlockSize = u; }
+  void      setLog2MinCodingBlockSize       ( int n )        { m_log2MinCUSize = n;   }
+  int       getLog2MinCodingBlockSize       () const         { return m_log2MinCUSize;}
   void      setUseEncDbOpt                  ( bool  n )          { m_encDbOpt = n; }
   bool      getUseEncDbOpt                  () const             { return m_encDbOpt; }
 
@@ -1083,28 +1335,28 @@ public:
   bool      getUseNonLinearAlfLuma          () const         { return m_useNonLinearAlfLuma; }
   void      setUseNonLinearAlfChroma        ( bool b )       { m_useNonLinearAlfChroma = b; }
   bool      getUseNonLinearAlfChroma        () const         { return m_useNonLinearAlfChroma; }
-#if JVET_O0090_ALF_CHROMA_FILTER_ALTERNATIVES_CTB
   void      setMaxNumAlfAlternativesChroma  ( uint32_t u )   { m_maxNumAlfAlternativesChroma = u; }
   uint32_t  getMaxNumAlfAlternativesChroma  () const         { return m_maxNumAlfAlternativesChroma; }
-#endif
+  void      setUseMRL                       ( bool b )       { m_MRL = b; }
+  bool      getUseMRL                       () const         { return m_MRL; }
   void      setUseMIP                       ( bool b )       { m_MIP = b; }
   bool      getUseMIP                       () const         { return m_MIP; }
   void      setUseFastMIP                   ( bool b )       { m_useFastMIP = b; }
   bool      getUseFastMIP                   () const         { return m_useFastMIP; }
-#if JVET_O0050_LOCAL_DUAL_TREE
   void     setFastLocalDualTreeMode         ( int i )        { m_fastLocalDualTreeMode = i; }
   int      getFastLocalDualTreeMode         () const         { return m_fastLocalDualTreeMode; }
-#endif
 
-#if MAX_TB_SIZE_SIGNALLING
   void      setLog2MaxTbSize                ( uint32_t  u )   { m_log2MaxTbSize = u; }
-#endif
 
   //====== Loop/Deblock Filter ========
-  void      setLoopFilterDisable            ( bool  b )      { m_bLoopFilterDisable       = b; }
-  void      setLoopFilterOffsetInPPS        ( bool  b )      { m_loopFilterOffsetInPPS      = b; }
-  void      setLoopFilterBetaOffset         ( int   i )      { m_loopFilterBetaOffsetDiv2  = i; }
-  void      setLoopFilterTcOffset           ( int   i )      { m_loopFilterTcOffsetDiv2    = i; }
+  void      setDeblockingFilterDisable      ( bool  b )      { m_deblockingFilterDisable           = b; }
+  void      setDeblockingFilterOffsetInPPS  ( bool  b )      { m_deblockingFilterOffsetInPPS       = b; }
+  void      setDeblockingFilterBetaOffset   ( int   i )      { m_deblockingFilterBetaOffsetDiv2    = i; }
+  void      setDeblockingFilterTcOffset     ( int   i )      { m_deblockingFilterTcOffsetDiv2      = i; }
+  void      setDeblockingFilterCbBetaOffset ( int   i )      { m_deblockingFilterCbBetaOffsetDiv2  = i; }
+  void      setDeblockingFilterCbTcOffset   ( int   i )      { m_deblockingFilterCbTcOffsetDiv2    = i; }
+  void      setDeblockingFilterCrBetaOffset ( int   i )      { m_deblockingFilterCrBetaOffsetDiv2  = i; }
+  void      setDeblockingFilterCrTcOffset   ( int   i )      { m_deblockingFilterCrTcOffsetDiv2    = i; }
 #if W0038_DB_OPT
   void      setDeblockingFilterMetric       ( int   i )      { m_deblockingFilterMetric = i; }
 #else
@@ -1123,8 +1375,11 @@ public:
   //====== Quality control ========
   void      setMaxDeltaQP                   ( int   i )      { m_iMaxDeltaQP = i; }
   void      setCuQpDeltaSubdiv              ( int   i )      { m_cuQpDeltaSubdiv = i; }
-  int       getCuChromaQpOffsetSubdiv       ()         const { return m_cuChromaQpOffsetSubdiv;  }
-  void      setCuChromaQpOffsetSubdiv       (int value)      { m_cuChromaQpOffsetSubdiv = value; }
+  unsigned  getCuChromaQpOffsetSubdiv       ()         const { return m_cuChromaQpOffsetSubdiv;  }
+  void      setCuChromaQpOffsetSubdiv       ( unsigned value ) { m_cuChromaQpOffsetSubdiv = value; }
+  bool      getCuChromaQpOffsetEnabled      ()         const { return m_cuChromaQpOffsetEnabled;  }
+  void      setCuChromaQpOffsetEnabled      ( bool value )   { m_cuChromaQpOffsetEnabled = value; }
+  void      setCuChromaQpOffsetList         (const std::vector<ChromaQpAdj> &list) { m_cuChromaQpOffsetList = list; }
 
   void      setChromaCbQpOffset             ( int   i )      { m_chromaCbQpOffset = i; }
   void      setChromaCrQpOffset             ( int   i )      { m_chromaCrQpOffset = i; }
@@ -1156,10 +1411,47 @@ public:
   void      setLumaLevelToDeltaQPControls( const LumaLevelToDeltaQPMapping &lumaLevelToDeltaQPMapping ) { m_lumaLevelToDeltaQPMapping=lumaLevelToDeltaQPMapping; }
   const LumaLevelToDeltaQPMapping& getLumaLevelToDeltaQPMapping() const { return m_lumaLevelToDeltaQPMapping; }
 #endif
-
+  bool      getSmoothQPReductionEnable()                  const { return m_smoothQPReductionEnable; }
+  void      setSmoothQPReductionEnable(bool value)        { m_smoothQPReductionEnable = value; }
+#if JVET_W0043
+  int       getSmoothQPReductionPeriodicity()                 const { return m_smoothQPReductionPeriodicity; }
+  void      setSmoothQPReductionPeriodicity(int value)        { m_smoothQPReductionPeriodicity = value; }
+  double    getSmoothQPReductionThresholdIntra()              const { return m_smoothQPReductionThresholdIntra; }
+  void      setSmoothQPReductionThresholdIntra(double value)  { m_smoothQPReductionThresholdIntra = value; }
+  double    getSmoothQPReductionModelScaleIntra()              const { return m_smoothQPReductionModelScaleIntra; }
+  void      setSmoothQPReductionModelScaleIntra(double value) { m_smoothQPReductionModelScaleIntra = value; }
+  double    getSmoothQPReductionModelOffsetIntra()             const { return m_smoothQPReductionModelOffsetIntra; }
+  void      setSmoothQPReductionModelOffsetIntra(double value) { m_smoothQPReductionModelOffsetIntra = value; }
+  int       getSmoothQPReductionLimitIntra()                   const { return m_smoothQPReductionLimitIntra; }
+  void      setSmoothQPReductionLimitIntra(int value)          { m_smoothQPReductionLimitIntra = value; }
+  double    getSmoothQPReductionThresholdInter()               const { return m_smoothQPReductionThresholdInter; }
+  void      setSmoothQPReductionThresholdInter(double value)   { m_smoothQPReductionThresholdInter = value; }
+  double    getSmoothQPReductionModelScaleInter()              const { return m_smoothQPReductionModelScaleInter; }
+  void      setSmoothQPReductionModelScaleInter(double value) { m_smoothQPReductionModelScaleInter = value; }
+  double    getSmoothQPReductionModelOffsetInter()             const { return m_smoothQPReductionModelOffsetInter; }
+  void      setSmoothQPReductionModelOffsetInter(double value) { m_smoothQPReductionModelOffsetInter = value; }
+  int       getSmoothQPReductionLimitInter()                   const { return m_smoothQPReductionLimitInter; }
+  void      setSmoothQPReductionLimitInter(int value)          { m_smoothQPReductionLimitInter = value; }
+#else
+  double    getSmoothQPReductionThreshold()               const { return m_smoothQPReductionThreshold; }
+  void      setSmoothQPReductionThreshold(double value)   { m_smoothQPReductionThreshold = value; }
+  double    getSmoothQPReductionModelScale()              const { return m_smoothQPReductionModelScale; }
+  void      setSmoothQPReductionModelScale(double value)  { m_smoothQPReductionModelScale = value; }
+  double    getSmoothQPReductionModelOffset()             const { return m_smoothQPReductionModelOffset; }
+  void      setSmoothQPReductionModelOffset(double value) { m_smoothQPReductionModelOffset = value; }
+  int       getSmoothQPReductionPeriodicity()             const { return m_smoothQPReductionPeriodicity; }
+  void      setSmoothQPReductionPeriodicity(int value)    { m_smoothQPReductionPeriodicity = value; }
+  int       getSmoothQPReductionLimit()                   const { return m_smoothQPReductionLimit; }
+  void      setSmoothQPReductionLimit(int value)          { m_smoothQPReductionLimit = value; }
+#endif
   bool      getExtendedPrecisionProcessingFlag         ()         const { return m_extendedPrecisionProcessingFlag;  }
   void      setExtendedPrecisionProcessingFlag         (bool value)     { m_extendedPrecisionProcessingFlag = value; }
-
+  bool      getTSRCRicePresentFlag         ()         const { return m_tsrcRicePresentFlag;  }
+  void      setTSRCRicePresentFlag         (bool value)     { m_tsrcRicePresentFlag = value; }
+#if JVET_W0046_RLSCP
+  bool      getReverseLastSigCoeffEnabledFlag         ()         const { return m_reverseLastSigCoeffEnabledFlag;  }
+  void      setReverseLastSigCoeffEnabledFlag         (bool value)     { m_reverseLastSigCoeffEnabledFlag = value; }
+#endif
   bool      getHighPrecisionOffsetsEnabledFlag() const { return m_highPrecisionOffsetsEnabledFlag; }
   void      setHighPrecisionOffsetsEnabledFlag(bool value) { m_highPrecisionOffsetsEnabledFlag = value; }
 
@@ -1174,8 +1466,8 @@ public:
   int       getFrameRate                    () const     { return  m_iFrameRate; }
   uint32_t      getFrameSkip                    () const     { return  m_FrameSkip; }
   uint32_t      getTemporalSubsampleRatio       () const     { return  m_temporalSubsampleRatio; }
-  int       getSourceWidth                  () const     { return  m_iSourceWidth; }
-  int       getSourceHeight                 () const     { return  m_iSourceHeight; }
+  int       getSourceWidth                  () const     { return  m_sourceWidth; }
+  int       getSourceHeight                 () const     { return  m_sourceHeight; }
   int       getFramesToBeEncoded            () const     { return  m_framesToBeEncoded; }
 
   //====== Lambda Modifiers ========
@@ -1187,15 +1479,14 @@ public:
   double    getIntraQpFactor                ()                        const { return m_dIntraQpFactor;                }
 
   //==== Coding Structure ========
-  uint32_t      getIntraPeriod                  () const     { return  m_uiIntraPeriod; }
-  uint32_t      getDecodingRefreshType          () const     { return  m_uiDecodingRefreshType; }
+  int       getIntraPeriod                  () const     { return  m_intraPeriod; }
+  uint32_t  getDecodingRefreshType          () const     { return  m_decodingRefreshType; }
   bool      getReWriteParamSets             ()  const    { return m_rewriteParamSets; }
   int       getGOPSize                      () const     { return  m_iGOPSize; }
   int       getMaxDecPicBuffering           (uint32_t tlayer) { return m_maxDecPicBuffering[tlayer]; }
-  int       getNumReorderPics               (uint32_t tlayer) { return m_numReorderPics[tlayer]; }
-#if JVET_N0494_DRAP
+  int       getMaxNumReorderPics            (uint32_t tlayer) { return m_maxNumReorderPics[tlayer]; }
   int       getDrapPeriod                   ()     { return m_drapPeriod; }
-#endif
+  int       getEdrapPeriod                  ()     { return m_edrapPeriod; }
 #if X0038_LAMBDA_FROM_QP_CAPABILITY
   int       getIntraQPOffset                () const    { return  m_intraQPOffset; }
   int       getLambdaFromQPEnable           () const    { return  m_lambdaFromQPEnable; }
@@ -1205,16 +1496,22 @@ public:
 #else
   int       getBaseQP                       ()       { return  m_iQP; }
 #endif
-  int       getPad                          ( int i )      { CHECK(i >= 2, "Invalid index");                      return  m_aiPad[i]; }
+  int       getSourcePadding                ( int i ) { CHECK(i >= 2, "Invalid index"); return  m_sourcePadding[i]; }
 
   bool      getAccessUnitDelimiter() const  { return m_AccessUnitDelimiter; }
   void      setAccessUnitDelimiter(bool val){ m_AccessUnitDelimiter = val; }
+  bool      getEnablePictureHeaderInSliceHeader() const { return m_enablePictureHeaderInSliceHeader; }
+  void      setEnablePictureHeaderInSliceHeader(bool val) { m_enablePictureHeaderInSliceHeader = val; }
 
   //==== Loop/Deblock Filter ========
-  bool      getLoopFilterDisable            ()      { return  m_bLoopFilterDisable;       }
-  bool      getLoopFilterOffsetInPPS        ()      { return m_loopFilterOffsetInPPS; }
-  int       getLoopFilterBetaOffset         ()      { return m_loopFilterBetaOffsetDiv2; }
-  int       getLoopFilterTcOffset           ()      { return m_loopFilterTcOffsetDiv2; }
+  bool      getDeblockingFilterDisable            ()      { return m_deblockingFilterDisable;          }
+  bool      getDeblockingFilterOffsetInPPS        ()      { return m_deblockingFilterOffsetInPPS;      }
+  int       getDeblockingFilterBetaOffset         ()      { return m_deblockingFilterBetaOffsetDiv2;   }
+  int       getDeblockingFilterTcOffset           ()      { return m_deblockingFilterTcOffsetDiv2;     }
+  int       getDeblockingFilterCbBetaOffset       ()      { return m_deblockingFilterCbBetaOffsetDiv2; }
+  int       getDeblockingFilterCbTcOffset         ()      { return m_deblockingFilterCbTcOffsetDiv2;   }
+  int       getDeblockingFilterCrBetaOffset       ()      { return m_deblockingFilterCrBetaOffsetDiv2; }
+  int       getDeblockingFilterCrTcOffset         ()      { return m_deblockingFilterCrTcOffsetDiv2;   }
 #if W0038_DB_OPT
   int       getDeblockingFilterMetric       ()      { return m_deblockingFilterMetric; }
 #else
@@ -1243,9 +1540,7 @@ public:
   //==== Tool list ========
   void      setBitDepth( const ChannelType chType, int internalBitDepthForChannel ) { m_bitDepth[chType] = internalBitDepthForChannel; }
   void      setInputBitDepth( const ChannelType chType, int internalBitDepthForChannel ) { m_inputBitDepth[chType] = internalBitDepthForChannel; }
-#if JVET_O1164_PS
   int*      getInputBitDepth()                              { return m_inputBitDepth; }
-#endif
   void      setUseASR                       ( bool  b )     { m_bUseASR     = b; }
   void      setUseHADME                     ( bool  b )     { m_bUseHADME   = b; }
   void      setUseRDOQ                      ( bool  b )     { m_useRDOQ    = b; }
@@ -1257,28 +1552,16 @@ public:
   void      setFastInterSearchMode          ( FastInterSearchMode m ) { m_fastInterSearchMode = m; }
   void      setUseEarlyCU                   ( bool  b )     { m_bUseEarlyCU = b; }
   void      setUseFastDecisionForMerge      ( bool  b )     { m_useFastDecisionForMerge = b; }
-  void      setUseCbfFastMode               ( bool  b )     { m_bUseCbfFastMode = b; }
   void      setUseEarlySkipDetection        ( bool  b )     { m_useEarlySkipDetection = b; }
-  void      setUseConstrainedIntraPred      ( bool  b )     { m_bUseConstrainedIntraPred = b; }
   void      setFastUDIUseMPMEnabled         ( bool  b )     { m_bFastUDIUseMPMEnabled = b; }
   void      setFastMEForGenBLowDelayEnabled ( bool  b )     { m_bFastMEForGenBLowDelayEnabled = b; }
   void      setUseBLambdaForNonKeyLowDelayPictures ( bool b ) { m_bUseBLambdaForNonKeyLowDelayPictures = b; }
 
-#if !JVET_O0525_REMOVE_PCM
-  void      setPCMInputBitDepthFlag         ( bool  b )     { m_bPCMInputBitDepthFlag = b; }
-  void      setPCMFilterDisableFlag         ( bool  b )     {  m_bPCMFilterDisableFlag = b; }
-  void      setUsePCM                       ( bool  b )     {  m_usePCM = b;               }
-  void      setPCMBitDepth( const ChannelType chType, int pcmBitDepthForChannel ) { m_PCMBitDepth[chType] = pcmBitDepthForChannel; }
-  void      setPCMLog2MaxSize               ( uint32_t u )      { m_pcmLog2MaxSize = u;      }
-  void      setPCMLog2MinSize               ( uint32_t u )     { m_uiPCMLog2MinSize = u;      }
-#endif
   void      setdQPs                         ( int*  p )     { m_aidQP       = p; }
   void      setDeltaQpRD                    ( uint32_t  u )     {m_uiDeltaQpRD  = u; }
   void      setFastDeltaQp                  ( bool  b )     {m_bFastDeltaQP = b; }
   int       getBitDepth                     (const ChannelType chType) const { return m_bitDepth[chType]; }
-#if JVET_O1164_PS
   int*      getBitDepth                     ()      { return m_bitDepth; }
-#endif
   bool      getUseASR                       ()      { return m_bUseASR;     }
   bool      getUseHADME                     ()      { return m_bUseHADME;   }
   bool      getUseRDOQ                      ()      { return m_useRDOQ;    }
@@ -1290,25 +1573,15 @@ public:
   FastInterSearchMode getFastInterSearchMode() const{ return m_fastInterSearchMode;  }
   bool      getUseEarlyCU                   () const{ return m_bUseEarlyCU; }
   bool      getUseFastDecisionForMerge      () const{ return m_useFastDecisionForMerge; }
-  bool      getUseCbfFastMode               () const{ return m_bUseCbfFastMode; }
   bool      getUseEarlySkipDetection        () const{ return m_useEarlySkipDetection; }
-  bool      getUseConstrainedIntraPred      ()      { return m_bUseConstrainedIntraPred; }
   bool      getFastUDIUseMPMEnabled         ()      { return m_bFastUDIUseMPMEnabled; }
   bool      getFastMEForGenBLowDelayEnabled ()      { return m_bFastMEForGenBLowDelayEnabled; }
   bool      getUseBLambdaForNonKeyLowDelayPictures () { return m_bUseBLambdaForNonKeyLowDelayPictures; }
-#if !JVET_O0525_REMOVE_PCM
-  bool      getPCMInputBitDepthFlag         ()      { return m_bPCMInputBitDepthFlag;   }
-  bool      getPCMFilterDisableFlag         ()      { return m_bPCMFilterDisableFlag;   }
-  bool      getUsePCM                       ()      { return m_usePCM;                 }
-  uint32_t      getPCMLog2MaxSize               ()      { return m_pcmLog2MaxSize;  }
-  uint32_t      getPCMLog2MinSize               ()      { return  m_uiPCMLog2MinSize;  }
-#endif
+  void  setGopBasedTemporalFilterEnabled(bool flag) { m_gopBasedTemporalFilterEnabled = flag; }
+  bool  getGopBasedTemporalFilterEnabled()          { return m_gopBasedTemporalFilterEnabled; }
 
-  bool      getCrossComponentPredictionEnabledFlag     ()                const { return m_crossComponentPredictionEnabledFlag;   }
-  void      setCrossComponentPredictionEnabledFlag     (const bool value)      { m_crossComponentPredictionEnabledFlag = value;  }
   bool      getUseReconBasedCrossCPredictionEstimate ()                const { return m_reconBasedCrossCPredictionEstimate;  }
   void      setUseReconBasedCrossCPredictionEstimate (const bool value)      { m_reconBasedCrossCPredictionEstimate = value; }
-  void      setLog2SaoOffsetScale(ChannelType type, uint32_t uiBitShift)         { m_log2SaoOffsetScale[type] = uiBitShift; }
 
   bool getUseTransformSkip                             ()      { return m_useTransformSkip;        }
   void setUseTransformSkip                             ( bool b ) { m_useTransformSkip  = b;       }
@@ -1316,48 +1589,64 @@ public:
   void setTransformSkipRotationEnabledFlag             (const bool value)  { m_transformSkipRotationEnabledFlag = value; }
   bool getTransformSkipContextEnabledFlag              ()            const { return m_transformSkipContextEnabledFlag;  }
   void setTransformSkipContextEnabledFlag              (const bool value)  { m_transformSkipContextEnabledFlag = value; }
-#if JVET_O1136_TS_BDPCM_SIGNALLING
+  bool getUseChromaTS                                  ()       { return m_useChromaTS; }
+  void setUseChromaTS                                  (bool b) { m_useChromaTS = b; }
   bool getUseBDPCM                                     ()         { return m_useBDPCM; }
   void setUseBDPCM                                     ( bool b ) { m_useBDPCM  = b;   }
-#endif
-#if JVET_O0376_SPS_JOINTCBCR_FLAG
   bool getUseJointCbCr                                 ()         { return m_JointCbCrMode; }
   void setUseJointCbCr                                 (bool b)   { m_JointCbCrMode = b; }
-#endif
+  bool getRrcRiceExtensionEnableFlag()                 const { return m_rrcRiceExtensionEnableFlag; }
+  void setRrcRiceExtensionEnableFlag(const bool value) { m_rrcRiceExtensionEnableFlag = value; }
   bool getPersistentRiceAdaptationEnabledFlag          ()                 const { return m_persistentRiceAdaptationEnabledFlag;  }
   void setPersistentRiceAdaptationEnabledFlag          (const bool value)       { m_persistentRiceAdaptationEnabledFlag = value; }
   bool getCabacBypassAlignmentEnabledFlag              ()       const      { return m_cabacBypassAlignmentEnabledFlag;  }
   void setCabacBypassAlignmentEnabledFlag              (const bool value)  { m_cabacBypassAlignmentEnabledFlag = value; }
-  bool getRdpcmEnabledFlag                             (const RDPCMSignallingMode signallingMode)        const      { return m_rdpcmEnabledFlag[signallingMode];  }
-  void setRdpcmEnabledFlag                             (const RDPCMSignallingMode signallingMode, const bool value) { m_rdpcmEnabledFlag[signallingMode] = value; }
   bool getUseTransformSkipFast                         ()      { return m_useTransformSkipFast;    }
   void setUseTransformSkipFast                         ( bool b ) { m_useTransformSkipFast  = b;   }
   uint32_t getLog2MaxTransformSkipBlockSize                () const      { return m_log2MaxTransformSkipBlockSize;     }
   void setLog2MaxTransformSkipBlockSize                ( uint32_t u )    { m_log2MaxTransformSkipBlockSize  = u;       }
   bool getIntraSmoothingDisabledFlag               ()      const { return m_intraSmoothingDisabledFlag; }
   void setIntraSmoothingDisabledFlag               (bool bValue) { m_intraSmoothingDisabledFlag=bValue; }
-  bool getUseFastISP                                   ()         { return m_useFastISP;    }
+  bool getUseFastISP                                   () const   { return m_useFastISP;    }
   void setUseFastISP                                   ( bool b ) { m_useFastISP  = b;   }
 
   const int* getdQPs                        () const { return m_aidQP;       }
   uint32_t      getDeltaQpRD                    () const { return m_uiDeltaQpRD; }
   bool      getFastDeltaQp                  () const { return m_bFastDeltaQP; }
-
-  //====== Slice ========
-  void  setSliceMode                   ( SliceConstraint  i )        { m_sliceMode = i;              }
-  void  setSliceArgument               ( int  i )                    { m_sliceArgument = i;          }
-  SliceConstraint getSliceMode         () const                      { return m_sliceMode;           }
-  int   getSliceArgument               ()                            { return m_sliceArgument;       }
-  //====== Dependent Slice ========
-  void  setSliceSegmentMode            ( SliceConstraint  i )        { m_sliceSegmentMode = i;       }
-  void  setSliceSegmentArgument        ( int  i )                    { m_sliceSegmentArgument = i;   }
-  SliceConstraint getSliceSegmentMode  () const                      { return m_sliceSegmentMode;    }
-  int   getSliceSegmentArgument        ()                            { return m_sliceSegmentArgument;}
-  void      setLFCrossSliceBoundaryFlag     ( bool   bValue  )       { m_bLFCrossSliceBoundaryFlag = bValue; }
-  bool      getLFCrossSliceBoundaryFlag     ()                       { return m_bLFCrossSliceBoundaryFlag;   }
-
+  void      setMixedLossyLossless(bool b) { m_mixedLossyLossless = b; }
+  bool      getMixedLossyLossless()       { return m_mixedLossyLossless; }
+  void      setSliceLosslessArray(std::vector<uint16_t> sliceLosslessArray) { m_sliceLosslessArray = sliceLosslessArray; }
+  const     std::vector<uint16_t>*   getSliceLosslessArray() const { return &m_sliceLosslessArray; }
+  //====== Tiles and Slices ========
+  void      setNoPicPartitionFlag( bool b )                                { m_noPicPartitionFlag = b;              }
+  bool      getNoPicPartitionFlag()                                        { return m_noPicPartitionFlag;           }
+  void      setTileColWidths( std::vector<uint32_t> tileColWidths )        { m_tileColumnWidth = tileColWidths;     }
+  const     std::vector<uint32_t>*   getTileColWidths() const              { return &m_tileColumnWidth;             }
+  void      setTileRowHeights( std::vector<uint32_t> tileRowHeights )      { m_tileRowHeight = tileRowHeights;      }
+  const     std::vector<uint32_t>*   getTileRowHeights() const             { return &m_tileRowHeight;               }
+  void      setRectSliceFlag( bool b )                                     { m_rectSliceFlag = b;                   }
+  bool      getRectSliceFlag()                                             { return m_rectSliceFlag;                }
+  void      setNumSlicesInPic( uint32_t u )                                { m_numSlicesInPic = u;                  }
+  uint32_t  getNumSlicesInPic()                                            { return m_numSlicesInPic;               }
+  void      setTileIdxDeltaPresentFlag( bool b )                           { m_tileIdxDeltaPresentFlag = b;         }
+  bool      getTileIdxDeltaPresentFlag()                                   { return m_tileIdxDeltaPresentFlag;      }
+  void      setRectSlices( std::vector<RectSlice> rectSlices )             { m_rectSlices = rectSlices;             }
+  const     std::vector<RectSlice>*   getRectSlices() const                { return &m_rectSlices;                  }
+  void      setRasterSliceSizes( std::vector<uint32_t> rasterSliceSizes )  { m_rasterSliceSize = rasterSliceSizes;  }
+  const     std::vector<uint32_t>*   getRasterSliceSizes() const           { return &m_rasterSliceSize;             }
+  void      setLFCrossTileBoundaryFlag( bool b )                           { m_bLFCrossTileBoundaryFlag = b;        }
+  bool      getLFCrossTileBoundaryFlag()                                   { return m_bLFCrossTileBoundaryFlag;     }
+  void      setLFCrossSliceBoundaryFlag( bool b )                          { m_bLFCrossSliceBoundaryFlag = b;       }
+  bool      getLFCrossSliceBoundaryFlag()                                  { return m_bLFCrossSliceBoundaryFlag;    }
+  //====== Sub-picture and Slices ========
+  void      setSingleSlicePerSubPicFlagFlag( bool b )                { m_singleSlicePerSubPicFlag = b;    }
+  bool      getSingleSlicePerSubPicFlagFlag( )                       { return m_singleSlicePerSubPicFlag;    }
   void      setUseSAO                  (bool bVal)                   { m_bUseSAO = bVal; }
   bool      getUseSAO                  ()                            { return m_bUseSAO; }
+#if JVET_W0129_ENABLE_ALF_TRUEORG
+  void      setSaoTrueOrg              (bool b)                      { m_saoTrueOrg = b; }
+  bool      getSaoTrueOrg              () const                      { return m_saoTrueOrg; }
+#endif
   void  setTestSAODisableAtPictureLevel (bool bVal)                  { m_bTestSAODisableAtPictureLevel = bVal; }
   bool  getTestSAODisableAtPictureLevel ( ) const                    { return m_bTestSAODisableAtPictureLevel; }
 
@@ -1372,118 +1661,24 @@ public:
 
   void  setSaoGreedyMergeEnc           (bool val)                    { m_saoGreedyMergeEnc = val; }
   bool  getSaoGreedyMergeEnc           ()                            { return m_saoGreedyMergeEnc; }
-  void  setLFCrossTileBoundaryFlag               ( bool   val  )     { m_loopFilterAcrossBricksEnabledFlag = val; }
-  bool  getLFCrossTileBoundaryFlag               ()                  { return m_loopFilterAcrossBricksEnabledFlag;   }
-  void  setTileUniformSpacingFlag      ( bool b )                    { m_tileUniformSpacingFlag = b; }
-  bool  getTileUniformSpacingFlag      ()                            { return m_tileUniformSpacingFlag; }
-  void  setNumColumnsMinus1            ( int i )                     { m_iNumColumnsMinus1 = i; }
-  int   getNumColumnsMinus1            ()                            { return m_iNumColumnsMinus1; }
-#if JVET_O0143_BOTTOM_RIGHT_BRICK_IDX_DELTA
-  void  setUniformTileColsWidthMinus1  (int i)                       { m_uniformTileColsWidthMinus1 = i; }
-  int   getUniformTileColsWidthMinus1  ()                            { return m_uniformTileColsWidthMinus1; }
-  void  setUniformTileRowHeightMinus1  (int i)                       { m_uniformTileRowHeightMinus1 = i; }
-  int   getUniformTileRowHeightMinus1  ()                            { return m_uniformTileRowHeightMinus1; }
-#endif
-  void  setColumnWidth ( const std::vector<int>& columnWidth )       { m_tileColumnWidth = columnWidth; }
-  uint32_t  getColumnWidth                 ( uint32_t columnIdx )            { return m_tileColumnWidth[columnIdx]; }
-  void  setNumRowsMinus1               ( int i )                     { m_iNumRowsMinus1 = i; }
-  int   getNumRowsMinus1               ()                            { return m_iNumRowsMinus1; }
-  void  setRowHeight ( const std::vector<int>& rowHeight)            { m_tileRowHeight = rowHeight; }
-  uint32_t  getRowHeight                   ( uint32_t rowIdx )               { return m_tileRowHeight[rowIdx]; }
-
-  bool  getRectSliceFlag() const                                     { return m_rectSliceFlag; }
-  void  setRectSliceFlag(bool val)                                   { m_rectSliceFlag = val; }
-  int   getNumSlicesInPicMinus1() const                              { return m_numSlicesInPicMinus1; }
-  void  setNumSlicesInPicMinus1(int val)                             { m_numSlicesInPicMinus1 = val; }
-  int   getTopLeftBrickIdx(uint32_t columnIdx) const                 { return  m_topLeftBrickIdx[columnIdx]; }
-  void  setTopLeftBrickIdx(const std::vector<int>& val)              { m_topLeftBrickIdx = val; }
-  int   getBottomeRightBrickIdx(uint32_t columnIdx) const            { return  m_bottomRightBrickIdx[columnIdx]; }
-  void  setBottomRightBrickIdx(const std::vector<int>& val)          { m_bottomRightBrickIdx = val; }
-  bool  getLoopFilterAcrossSlicesEnabledFlag() const                 { return m_loopFilterAcrossSlicesEnabledFlag; }
-  void  setLoopFilterAcrossSlicesEnabledFlag(bool val)               { m_loopFilterAcrossSlicesEnabledFlag = val; }
-  bool  getSignalledSliceIdFlag() const                              { return m_signalledSliceIdFlag; }
-  void  setSignalledSliceIdFlag(bool val)                            { m_signalledSliceIdFlag = val; }
-  int   getSignalledSliceIdLengthMinus1() const                      { return m_signalledSliceIdLengthMinus1; }
-  void  setSignalledSliceIdLengthMinus1(int val)                     { m_signalledSliceIdLengthMinus1 = val; }
-  int   getSliceId(uint32_t columnIdx) const                         { return  m_sliceId[columnIdx]; }
-  void  setSliceId(const std::vector<int>& val)                      { m_sliceId = val; }
-  BrickSplitMap getBrickSplitMap() const                             { return  m_brickSplitMap; }
-  void  setBrickSplitMap(const BrickSplitMap& val)                   { m_brickSplitMap = val; }
-
-  void  xCheckGSParameters();
   void  setEntropyCodingSyncEnabledFlag(bool b)                      { m_entropyCodingSyncEnabledFlag = b; }
   bool  getEntropyCodingSyncEnabledFlag() const                      { return m_entropyCodingSyncEnabledFlag; }
+  void  setEntryPointPresentFlag(bool b)                             { m_entryPointPresentFlag = b; }
   void  setDecodedPictureHashSEIType(HashType m)                     { m_decodedPictureHashSEIType = m; }
   HashType getDecodedPictureHashSEIType() const                      { return m_decodedPictureHashSEIType; }
+  void  setSubpicDecodedPictureHashType(HashType m)                  { m_subpicDecodedPictureHashType = m; }
+  HashType getSubpicDecodedPictureHashType() const                   { return m_subpicDecodedPictureHashType; }
+
   void  setBufferingPeriodSEIEnabled(bool b)                         { m_bufferingPeriodSEIEnabled = b; }
   bool  getBufferingPeriodSEIEnabled() const                         { return m_bufferingPeriodSEIEnabled; }
   void  setPictureTimingSEIEnabled(bool b)                           { m_pictureTimingSEIEnabled = b; }
   bool  getPictureTimingSEIEnabled() const                           { return m_pictureTimingSEIEnabled; }
-#if JVET_O0041_FRAME_FIELD_SEI
   void  setFrameFieldInfoSEIEnabled(bool b)                           { m_frameFieldInfoSEIEnabled = b; }
   bool  getFrameFieldInfoSEIEnabled() const                           { return m_frameFieldInfoSEIEnabled; }
-#endif
-#if JVET_N0494_DRAP
   void  setDependentRAPIndicationSEIEnabled(bool b)                  { m_dependentRAPIndicationSEIEnabled = b; }
   int   getDependentRAPIndicationSEIEnabled() const                  { return m_dependentRAPIndicationSEIEnabled; }
-#endif
-#if HEVC_SEI
-  void  setRecoveryPointSEIEnabled(bool b)                           { m_recoveryPointSEIEnabled = b; }
-  bool  getRecoveryPointSEIEnabled() const                           { return m_recoveryPointSEIEnabled; }
-  void  setToneMappingInfoSEIEnabled(bool b)                         { m_toneMappingInfoSEIEnabled = b;  }
-  bool  getToneMappingInfoSEIEnabled()                               { return m_toneMappingInfoSEIEnabled;  }
-  void  setTMISEIToneMapId(int b)                                    { m_toneMapId = b;  }
-  int   getTMISEIToneMapId()                                         { return m_toneMapId;  }
-  void  setTMISEIToneMapCancelFlag(bool b)                           { m_toneMapCancelFlag=b;  }
-  bool  getTMISEIToneMapCancelFlag()                                 { return m_toneMapCancelFlag;  }
-  void  setTMISEIToneMapPersistenceFlag(bool b)                      { m_toneMapPersistenceFlag = b;  }
-  bool   getTMISEIToneMapPersistenceFlag()                           { return m_toneMapPersistenceFlag;  }
-  void  setTMISEICodedDataBitDepth(int b)                            { m_codedDataBitDepth = b;  }
-  int   getTMISEICodedDataBitDepth()                                 { return m_codedDataBitDepth;  }
-  void  setTMISEITargetBitDepth(int b)                               { m_targetBitDepth = b;  }
-  int   getTMISEITargetBitDepth()                                    { return m_targetBitDepth;  }
-  void  setTMISEIModelID(int b)                                      { m_modelId = b;  }
-  int   getTMISEIModelID()                                           { return m_modelId;  }
-  void  setTMISEIMinValue(int b)                                     { m_minValue = b;  }
-  int   getTMISEIMinValue()                                          { return m_minValue;  }
-  void  setTMISEIMaxValue(int b)                                     { m_maxValue = b;  }
-  int   getTMISEIMaxValue()                                          { return m_maxValue;  }
-  void  setTMISEISigmoidMidpoint(int b)                              { m_sigmoidMidpoint = b;  }
-  int   getTMISEISigmoidMidpoint()                                   { return m_sigmoidMidpoint;  }
-  void  setTMISEISigmoidWidth(int b)                                 { m_sigmoidWidth = b;  }
-  int   getTMISEISigmoidWidth()                                      { return m_sigmoidWidth;  }
-  void  setTMISEIStartOfCodedInterva( int*  p )                      { m_startOfCodedInterval = p;  }
-  int*  getTMISEIStartOfCodedInterva()                               { return m_startOfCodedInterval;  }
-  void  setTMISEINumPivots(int b)                                    { m_numPivots = b;  }
-  int   getTMISEINumPivots()                                         { return m_numPivots;  }
-  void  setTMISEICodedPivotValue( int*  p )                          { m_codedPivotValue = p;  }
-  int*  getTMISEICodedPivotValue()                                   { return m_codedPivotValue;  }
-  void  setTMISEITargetPivotValue( int*  p )                         { m_targetPivotValue = p;  }
-  int*  getTMISEITargetPivotValue()                                  { return m_targetPivotValue;  }
-  void  setTMISEICameraIsoSpeedIdc(int b)                            { m_cameraIsoSpeedIdc = b;  }
-  int   getTMISEICameraIsoSpeedIdc()                                 { return m_cameraIsoSpeedIdc;  }
-  void  setTMISEICameraIsoSpeedValue(int b)                          { m_cameraIsoSpeedValue = b;  }
-  int   getTMISEICameraIsoSpeedValue()                               { return m_cameraIsoSpeedValue;  }
-  void  setTMISEIExposureIndexIdc(int b)                             { m_exposureIndexIdc = b;  }
-  int   getTMISEIExposurIndexIdc()                                   { return m_exposureIndexIdc;  }
-  void  setTMISEIExposureIndexValue(int b)                           { m_exposureIndexValue = b;  }
-  int   getTMISEIExposurIndexValue()                                 { return m_exposureIndexValue;  }
-  void  setTMISEIExposureCompensationValueSignFlag(bool b)           { m_exposureCompensationValueSignFlag = b;  }
-  bool  getTMISEIExposureCompensationValueSignFlag()                 { return m_exposureCompensationValueSignFlag;  }
-  void  setTMISEIExposureCompensationValueNumerator(int b)           { m_exposureCompensationValueNumerator = b;  }
-  int   getTMISEIExposureCompensationValueNumerator()                { return m_exposureCompensationValueNumerator;  }
-  void  setTMISEIExposureCompensationValueDenomIdc(int b)            { m_exposureCompensationValueDenomIdc =b;  }
-  int   getTMISEIExposureCompensationValueDenomIdc()                 { return m_exposureCompensationValueDenomIdc;  }
-  void  setTMISEIRefScreenLuminanceWhite(int b)                      { m_refScreenLuminanceWhite = b;  }
-  int   getTMISEIRefScreenLuminanceWhite()                           { return m_refScreenLuminanceWhite;  }
-  void  setTMISEIExtendedRangeWhiteLevel(int b)                      { m_extendedRangeWhiteLevel = b;  }
-  int   getTMISEIExtendedRangeWhiteLevel()                           { return m_extendedRangeWhiteLevel;  }
-  void  setTMISEINominalBlackLevelLumaCodeValue(int b)               { m_nominalBlackLevelLumaCodeValue = b;  }
-  int   getTMISEINominalBlackLevelLumaCodeValue()                    { return m_nominalBlackLevelLumaCodeValue;  }
-  void  setTMISEINominalWhiteLevelLumaCodeValue(int b)               { m_nominalWhiteLevelLumaCodeValue = b;  }
-  int   getTMISEINominalWhiteLevelLumaCodeValue()                    { return m_nominalWhiteLevelLumaCodeValue;  }
-  void  setTMISEIExtendedWhiteLevelLumaCodeValue(int b)              { m_extendedWhiteLevelLumaCodeValue =b;  }
-  int   getTMISEIExtendedWhiteLevelLumaCodeValue()                   { return m_extendedWhiteLevelLumaCodeValue;  }
+  void  setEdrapIndicationSEIEnabled(bool b)                         { m_edrapIndicationSEIEnabled = b; }
+  int   getEdrapIndicationSEIEnabled() const                         { return m_edrapIndicationSEIEnabled; }
   void  setFramePackingArrangementSEIEnabled(bool b)                 { m_framePackingSEIEnabled = b; }
   bool  getFramePackingArrangementSEIEnabled() const                 { return m_framePackingSEIEnabled; }
   void  setFramePackingArrangementSEIType(int b)                     { m_framePackingSEIType = b; }
@@ -1494,71 +1689,169 @@ public:
   int   getFramePackingArrangementSEIQuincunx()                      { return m_framePackingSEIQuincunx; }
   void  setFramePackingArrangementSEIInterpretation(int b)           { m_framePackingSEIInterpretation = b; }
   int   getFramePackingArrangementSEIInterpretation()                { return m_framePackingSEIInterpretation; }
-  void  setSegmentedRectFramePackingArrangementSEIEnabled(bool b)    { m_segmentedRectFramePackingSEIEnabled = b; }
-  bool  getSegmentedRectFramePackingArrangementSEIEnabled() const    { return m_segmentedRectFramePackingSEIEnabled; }
-  void  setSegmentedRectFramePackingArrangementSEICancel(int b)      { m_segmentedRectFramePackingSEICancel = b; }
-  int   getSegmentedRectFramePackingArrangementSEICancel()           { return m_segmentedRectFramePackingSEICancel; }
-  void  setSegmentedRectFramePackingArrangementSEIType(int b)        { m_segmentedRectFramePackingSEIType = b; }
-  int   getSegmentedRectFramePackingArrangementSEIType()             { return m_segmentedRectFramePackingSEIType; }
-  void  setSegmentedRectFramePackingArrangementSEIPersistence(int b) { m_segmentedRectFramePackingSEIPersistence = b; }
-  int   getSegmentedRectFramePackingArrangementSEIPersistence()      { return m_segmentedRectFramePackingSEIPersistence; }
-  void  setDisplayOrientationSEIAngle(int b)                         { m_displayOrientationSEIAngle = b; }
-  int   getDisplayOrientationSEIAngle()                              { return m_displayOrientationSEIAngle; }
-  void  setTemporalLevel0IndexSEIEnabled(bool b)                     { m_temporalLevel0IndexSEIEnabled = b; }
-  bool  getTemporalLevel0IndexSEIEnabled() const                     { return m_temporalLevel0IndexSEIEnabled; }
-  void  setGradualDecodingRefreshInfoEnabled(bool b)                 { m_gradualDecodingRefreshInfoEnabled = b;    }
-  bool  getGradualDecodingRefreshInfoEnabled() const                 { return m_gradualDecodingRefreshInfoEnabled; }
-  void  setNoDisplaySEITLayer(int b)                                 { m_noDisplaySEITLayer = b;    }
-  int   getNoDisplaySEITLayer()                                      { return m_noDisplaySEITLayer; }
-#endif
-#if JVET_N0867_TEMP_SCAL_HRD
+  void  setDoSEIEnabled(bool b)                                      { m_doSEIEnabled = b; }
+  bool  getDoSEIEnabled() const                                      { return m_doSEIEnabled; }
+  void  setDoSEICancelFlag(bool b)                                   { m_doSEICancelFlag = b; }
+  bool  getDoSEICancelFlag()                                         { return m_doSEICancelFlag; }
+  void  setDoSEIPersistenceFlag(bool b)                              { m_doSEIPersistenceFlag = b; }
+  bool  getDoSEIPersistenceFlag()                                    { return m_doSEIPersistenceFlag; }
+  void  setDoSEITransformType(const int type)                        { m_doSEITransformType = type; }
+  int   getDOSEITransformType() const                                { return m_doSEITransformType; }
+  void  setParameterSetsInclusionIndicationSEIEnabled(bool b)        { m_parameterSetsInclusionIndicationSEIEnabled = b; }
+  bool  getParameterSetsInclusionIndicationSEIEnabled() const        { return m_parameterSetsInclusionIndicationSEIEnabled; }
+  void  setSelfContainedClvsFlag(bool b)                             { m_selfContainedClvsFlag = b; }
+  int   getSelfContainedClvsFlag()                                   { return m_selfContainedClvsFlag; }
   void  setBpDeltasGOPStructure(bool b)                              { m_bpDeltasGOPStructure = b;    }
   bool  getBpDeltasGOPStructure() const                              { return m_bpDeltasGOPStructure; }
-#endif
   void  setDecodingUnitInfoSEIEnabled(bool b)                        { m_decodingUnitInfoSEIEnabled = b;    }
   bool  getDecodingUnitInfoSEIEnabled() const                        { return m_decodingUnitInfoSEIEnabled; }
-#if HEVC_SEI
-  void  setSOPDescriptionSEIEnabled(bool b)                          { m_SOPDescriptionSEIEnabled = b; }
-  bool  getSOPDescriptionSEIEnabled() const                          { return m_SOPDescriptionSEIEnabled; }
   void  setScalableNestingSEIEnabled(bool b)                         { m_scalableNestingSEIEnabled = b; }
   bool  getScalableNestingSEIEnabled() const                         { return m_scalableNestingSEIEnabled; }
-  void  setTMCTSSEIEnabled(bool b)                                   { m_tmctsSEIEnabled = b; }
-  bool  getTMCTSSEIEnabled()                                         { return m_tmctsSEIEnabled; }
-#endif
+
+  void  setErpSEIEnabled(bool b)                                     { m_erpSEIEnabled = b; }
+  bool  getErpSEIEnabled()                                           { return m_erpSEIEnabled; }
+  void  setErpSEICancelFlag(bool b)                                  { m_erpSEICancelFlag = b; }
+  bool  getErpSEICancelFlag()                                        { return m_erpSEICancelFlag; }
+  void  setErpSEIPersistenceFlag(bool b)                             { m_erpSEIPersistenceFlag = b; }
+  bool  getErpSEIPersistenceFlag()                                   { return m_erpSEIPersistenceFlag; }
+  void  setErpSEIGuardBandFlag(bool b)                               { m_erpSEIGuardBandFlag = b; }
+  bool  getErpSEIGuardBandFlag()                                     { return m_erpSEIGuardBandFlag; }
+  void  setErpSEIGuardBandType(uint32_t b)                           { m_erpSEIGuardBandType = b; }
+  uint32_t  getErpSEIGuardBandType()                                 { return m_erpSEIGuardBandType; }
+  void  setErpSEILeftGuardBandWidth(uint32_t b)                      { m_erpSEILeftGuardBandWidth = b; }
+  uint32_t  getErpSEILeftGuardBandWidth()                            { return m_erpSEILeftGuardBandWidth; }
+  void  setErpSEIRightGuardBandWidth(uint32_t b)                     { m_erpSEIRightGuardBandWidth = b; }
+  uint32_t  getErpSEIRightGuardBandWidth()                           { return m_erpSEIRightGuardBandWidth; }
+  void  setSphereRotationSEIEnabled(bool b)                          { m_sphereRotationSEIEnabled = b; }
+  bool  getSphereRotationSEIEnabled()                                { return m_sphereRotationSEIEnabled; }
+  void  setSphereRotationSEICancelFlag(bool b)                       { m_sphereRotationSEICancelFlag = b; }
+  bool  getSphereRotationSEICancelFlag()                             { return m_sphereRotationSEICancelFlag; }
+  void  setSphereRotationSEIPersistenceFlag(bool b)                  { m_sphereRotationSEIPersistenceFlag = b; }
+  bool  getSphereRotationSEIPersistenceFlag()                        { return m_sphereRotationSEIPersistenceFlag; }
+  void  setSphereRotationSEIYaw(int b)                               { m_sphereRotationSEIYaw = b; }
+  int   getSphereRotationSEIYaw()                                    { return m_sphereRotationSEIYaw; }
+  void  setSphereRotationSEIPitch(int b)                             { m_sphereRotationSEIPitch = b; }
+  int   getSphereRotationSEIPitch()                                  { return m_sphereRotationSEIPitch; }
+  void  setSphereRotationSEIRoll(int b)                              { m_sphereRotationSEIRoll = b; }
+  int   getSphereRotationSEIRoll()                                   { return m_sphereRotationSEIRoll; }
+  void  setOmniViewportSEIEnabled(bool b)                            { m_omniViewportSEIEnabled = b; }
+  bool  getOmniViewportSEIEnabled()                                  { return m_omniViewportSEIEnabled; }
+  void  setOmniViewportSEIId(uint32_t b)                             { m_omniViewportSEIId = b; }
+  uint32_t  getOmniViewportSEIId()                                   { return m_omniViewportSEIId; }
+  void  setOmniViewportSEICancelFlag(bool b)                         { m_omniViewportSEICancelFlag = b; }
+  bool  getOmniViewportSEICancelFlag()                               { return m_omniViewportSEICancelFlag; }
+  void  setOmniViewportSEIPersistenceFlag(bool b)                    { m_omniViewportSEIPersistenceFlag = b; }
+  bool  getOmniViewportSEIPersistenceFlag()                          { return m_omniViewportSEIPersistenceFlag; }
+  void  setOmniViewportSEICntMinus1(uint32_t b)                      { m_omniViewportSEICntMinus1 = b; }
+  uint32_t  getOmniViewportSEICntMinus1()                            { return m_omniViewportSEICntMinus1; }
+  void  setOmniViewportSEIAzimuthCentre(const std::vector<int>& vi)  { m_omniViewportSEIAzimuthCentre = vi; }
+  int   getOmniViewportSEIAzimuthCentre(int idx)                     { return m_omniViewportSEIAzimuthCentre[idx]; }
+  void  setOmniViewportSEIElevationCentre(const std::vector<int>& vi){ m_omniViewportSEIElevationCentre = vi; }
+  int   getOmniViewportSEIElevationCentre(int idx)                   { return m_omniViewportSEIElevationCentre[idx]; }
+  void  setOmniViewportSEITiltCentre(const std::vector<int>& vi)     { m_omniViewportSEITiltCentre = vi; }
+  int   getOmniViewportSEITiltCentre(int idx)                        { return m_omniViewportSEITiltCentre[idx]; }
+  void  setOmniViewportSEIHorRange(const std::vector<uint32_t>& vi)  { m_omniViewportSEIHorRange = vi; }
+  uint32_t  getOmniViewportSEIHorRange(int idx)                      { return m_omniViewportSEIHorRange[idx]; }
+  void  setOmniViewportSEIVerRange(const std::vector<uint32_t>& vi)  { m_omniViewportSEIVerRange = vi; }
+  uint32_t  getOmniViewportSEIVerRange(int idx)                      { return m_omniViewportSEIVerRange[idx]; }
+  void  setAnnotatedRegionSEIFileRoot(const std::string &s)          { m_arSEIFileRoot = s; m_arObjects.clear();}
+  const std::string &getAnnotatedRegionSEIFileRoot() const           { return m_arSEIFileRoot; }
+  void     setRwpSEIEnabled(bool b)                                                                     { m_rwpSEIEnabled = b; }
+  bool     getRwpSEIEnabled()                                                                           { return m_rwpSEIEnabled; }
+  void     setRwpSEIRwpCancelFlag(bool b)                                                               { m_rwpSEIRwpCancelFlag = b; }
+  bool     getRwpSEIRwpCancelFlag()                                                                     { return m_rwpSEIRwpCancelFlag; }
+  void     setRwpSEIRwpPersistenceFlag (bool b)                                                         { m_rwpSEIRwpPersistenceFlag = b; }
+  bool     getRwpSEIRwpPersistenceFlag ()                                                               { return m_rwpSEIRwpPersistenceFlag; }
+  void     setRwpSEIConstituentPictureMatchingFlag (bool b)                                             { m_rwpSEIConstituentPictureMatchingFlag = b; }
+  bool     getRwpSEIConstituentPictureMatchingFlag ()                                                   { return m_rwpSEIConstituentPictureMatchingFlag; }
+  void     setRwpSEINumPackedRegions (int value)                                                        { m_rwpSEINumPackedRegions = value; }
+  int      getRwpSEINumPackedRegions ()                                                                 { return m_rwpSEINumPackedRegions; }
+  void     setRwpSEIProjPictureWidth (int value)                                                        { m_rwpSEIProjPictureWidth = value; }
+  int      getRwpSEIProjPictureWidth ()                                                                 { return m_rwpSEIProjPictureWidth; }
+  void     setRwpSEIProjPictureHeight (int value)                                                       { m_rwpSEIProjPictureHeight = value; }
+  int      getRwpSEIProjPictureHeight ()                                                                { return m_rwpSEIProjPictureHeight; }
+  void     setRwpSEIPackedPictureWidth (int value)                                                      { m_rwpSEIPackedPictureWidth = value; }
+  int      getRwpSEIPackedPictureWidth ()                                                               { return m_rwpSEIPackedPictureWidth; }
+  void     setRwpSEIPackedPictureHeight (int value)                                                     { m_rwpSEIPackedPictureHeight = value; }
+  int      getRwpSEIPackedPictureHeight ()                                                              { return m_rwpSEIPackedPictureHeight; }
+  void     setRwpSEIRwpTransformType(const std::vector<uint8_t>& rwpTransformType)                          { m_rwpSEIRwpTransformType =rwpTransformType; }
+  uint8_t  getRwpSEIRwpTransformType(uint32_t idx) const                                                    { return m_rwpSEIRwpTransformType[idx]; }
+  void     setRwpSEIRwpGuardBandFlag(const std::vector<bool>& rwpGuardBandFlag)                             { m_rwpSEIRwpGuardBandFlag = rwpGuardBandFlag; }
+  bool     getRwpSEIRwpGuardBandFlag(uint32_t idx) const                                                    { return m_rwpSEIRwpGuardBandFlag[idx]; }
+  void     setRwpSEIProjRegionWidth(const std::vector<uint32_t>& projRegionWidth)                           { m_rwpSEIProjRegionWidth = projRegionWidth; }
+  uint32_t getRwpSEIProjRegionWidth(uint32_t idx) const                                                     { return m_rwpSEIProjRegionWidth[idx]; }
+  void     setRwpSEIProjRegionHeight(const std::vector<uint32_t>& projRegionHeight)                         { m_rwpSEIProjRegionHeight = projRegionHeight; }
+  uint32_t getRwpSEIProjRegionHeight(uint32_t idx) const                                                    { return m_rwpSEIProjRegionHeight[idx]; }
+  void     setRwpSEIRwpSEIProjRegionTop(const std::vector<uint32_t>& projRegionTop)                         { m_rwpSEIRwpSEIProjRegionTop = projRegionTop; }
+  uint32_t getRwpSEIRwpSEIProjRegionTop(uint32_t idx) const                                                 { return m_rwpSEIRwpSEIProjRegionTop[idx]; }
+  void     setRwpSEIProjRegionLeft(const std::vector<uint32_t>& projRegionLeft)                             { m_rwpSEIProjRegionLeft = projRegionLeft; }
+  uint32_t getRwpSEIProjRegionLeft(uint32_t idx) const                                                      { return m_rwpSEIProjRegionLeft[idx]; }
+  void     setRwpSEIPackedRegionWidth(const std::vector<uint16_t>& packedRegionWidth)                       { m_rwpSEIPackedRegionWidth  = packedRegionWidth; }
+  uint16_t getRwpSEIPackedRegionWidth(uint32_t idx) const                                                   { return m_rwpSEIPackedRegionWidth[idx]; }
+  void     setRwpSEIPackedRegionHeight(const std::vector<uint16_t>& packedRegionHeight)                     { m_rwpSEIPackedRegionHeight = packedRegionHeight; }
+  uint16_t getRwpSEIPackedRegionHeight(uint32_t idx) const                                                  { return m_rwpSEIPackedRegionHeight[idx]; }
+  void     setRwpSEIPackedRegionTop(const std::vector<uint16_t>& packedRegionTop)                           { m_rwpSEIPackedRegionTop = packedRegionTop; }
+  uint16_t getRwpSEIPackedRegionTop(uint32_t idx) const                                                     { return m_rwpSEIPackedRegionTop[idx]; }
+  void     setRwpSEIPackedRegionLeft(const std::vector<uint16_t>& packedRegionLeft)                         { m_rwpSEIPackedRegionLeft = packedRegionLeft; }
+  uint16_t getRwpSEIPackedRegionLeft(uint32_t idx) const                                                    { return m_rwpSEIPackedRegionLeft[idx]; }
+  void     setRwpSEIRwpLeftGuardBandWidth(const std::vector<uint8_t>& rwpLeftGuardBandWidth)                { m_rwpSEIRwpLeftGuardBandWidth = rwpLeftGuardBandWidth; }
+  uint8_t  getRwpSEIRwpLeftGuardBandWidth(uint32_t idx) const                                               { return m_rwpSEIRwpLeftGuardBandWidth[idx]; }
+  void     setRwpSEIRwpRightGuardBandWidth(const std::vector<uint8_t>& rwpRightGuardBandWidth)              { m_rwpSEIRwpRightGuardBandWidth = rwpRightGuardBandWidth; }
+  uint8_t  getRwpSEIRwpRightGuardBandWidth(uint32_t idx) const                                              { return m_rwpSEIRwpRightGuardBandWidth[idx]; }
+  void     setRwpSEIRwpTopGuardBandHeight(const std::vector<uint8_t>& rwpTopGuardBandHeight)                { m_rwpSEIRwpTopGuardBandHeight = rwpTopGuardBandHeight; }
+  uint8_t  getRwpSEIRwpTopGuardBandHeight(uint32_t idx) const                                               { return m_rwpSEIRwpTopGuardBandHeight[idx]; }
+  void     setRwpSEIRwpBottomGuardBandHeight(const std::vector<uint8_t>& rwpBottomGuardBandHeight)          { m_rwpSEIRwpBottomGuardBandHeight = rwpBottomGuardBandHeight; }
+  uint8_t  getRwpSEIRwpBottomGuardBandHeight(uint32_t idx) const                                            { return m_rwpSEIRwpBottomGuardBandHeight[idx]; }
+  void     setRwpSEIRwpGuardBandNotUsedForPredFlag(const std::vector<bool>& rwpGuardBandNotUsedForPredFlag) { m_rwpSEIRwpGuardBandNotUsedForPredFlag = rwpGuardBandNotUsedForPredFlag; }
+  bool     getRwpSEIRwpGuardBandNotUsedForPredFlag(uint32_t idx) const                                      { return m_rwpSEIRwpGuardBandNotUsedForPredFlag[idx]; }
+  void     setRwpSEIRwpGuardBandType(const std::vector<uint8_t>& rwpGuardBandType)                          { m_rwpSEIRwpGuardBandType = rwpGuardBandType; }
+  uint8_t  getRwpSEIRwpGuardBandType(uint32_t idx) const                                                    { return m_rwpSEIRwpGuardBandType[idx]; }
+  void    setGcmpSEIEnabled(bool b)                                                                 { m_gcmpSEIEnabled = b; }
+  bool    getGcmpSEIEnabled()                                                                       { return m_gcmpSEIEnabled; }
+  void    setGcmpSEICancelFlag(bool b)                                                              { m_gcmpSEICancelFlag = b; }
+  bool    getGcmpSEICancelFlag()                                                                    { return m_gcmpSEICancelFlag; }
+  void    setGcmpSEIPersistenceFlag(bool b)                                                         { m_gcmpSEIPersistenceFlag = b; }
+  bool    getGcmpSEIPersistenceFlag()                                                               { return m_gcmpSEIPersistenceFlag; }
+  void    setGcmpSEIPackingType(uint8_t u)                                                          { m_gcmpSEIPackingType = u; }
+  uint8_t getGcmpSEIPackingType()                                                                   { return m_gcmpSEIPackingType; }
+  void    setGcmpSEIMappingFunctionType(uint8_t u)                                                  { m_gcmpSEIMappingFunctionType = u; }
+  uint8_t getGcmpSEIMappingFunctionType()                                                           { return m_gcmpSEIMappingFunctionType; }
+  void    setGcmpSEIFaceIndex(const std::vector<uint8_t>& gcmpFaceIndex)                            { m_gcmpSEIFaceIndex = gcmpFaceIndex; }
+  uint8_t getGcmpSEIFaceIndex(int idx) const                                                        { return m_gcmpSEIFaceIndex[idx]; }
+  void    setGcmpSEIFaceRotation(const std::vector<uint8_t>& gcmpFaceRotation)                      { m_gcmpSEIFaceRotation = gcmpFaceRotation; }
+  uint8_t getGcmpSEIFaceRotation(int idx) const                                                     { return m_gcmpSEIFaceRotation[idx]; }
+  void    setGcmpSEIFunctionCoeffU(const std::vector<double>& gcmpFunctionCoeffU)                   { m_gcmpSEIFunctionCoeffU = gcmpFunctionCoeffU; }
+  double  getGcmpSEIFunctionCoeffU(int idx) const                                                   { return m_gcmpSEIFunctionCoeffU[idx]; }
+  void    setGcmpSEIFunctionUAffectedByVFlag(const std::vector<bool>& gcmpFunctionUAffectedByVFlag) { m_gcmpSEIFunctionUAffectedByVFlag = gcmpFunctionUAffectedByVFlag; }
+  bool    getGcmpSEIFunctionUAffectedByVFlag(int idx) const                                         { return m_gcmpSEIFunctionUAffectedByVFlag[idx]; }
+  void    setGcmpSEIFunctionCoeffV(const std::vector<double>& gcmpFunctionCoeffV)                   { m_gcmpSEIFunctionCoeffV = gcmpFunctionCoeffV; }
+  double  getGcmpSEIFunctionCoeffV(int idx) const                                                   { return m_gcmpSEIFunctionCoeffV[idx]; }
+  void    setGcmpSEIFunctionVAffectedByUFlag(const std::vector<bool>& gcmpFunctionVAffectedByUFlag) { m_gcmpSEIFunctionVAffectedByUFlag = gcmpFunctionVAffectedByUFlag; }
+  bool    getGcmpSEIFunctionVAffectedByUFlag(int idx) const                                         { return m_gcmpSEIFunctionVAffectedByUFlag[idx]; }
+  void    setGcmpSEIGuardBandFlag(bool b)                                                           { m_gcmpSEIGuardBandFlag = b; }
+  bool    getGcmpSEIGuardBandFlag()                                                                 { return m_gcmpSEIGuardBandFlag; }
+  void    setGcmpSEIGuardBandType(uint8_t u)                                                        { m_gcmpSEIGuardBandType = u; }
+  uint8_t getGcmpSEIGuardBandType()                                                                 { return m_gcmpSEIGuardBandType; }
+  void    setGcmpSEIGuardBandBoundaryExteriorFlag(bool b)                                           { m_gcmpSEIGuardBandBoundaryExteriorFlag = b; }
+  bool    getGcmpSEIGuardBandBoundaryExteriorFlag()                                                 { return m_gcmpSEIGuardBandBoundaryExteriorFlag; }
+  void    setGcmpSEIGuardBandSamplesMinus1( uint8_t u )                                             { m_gcmpSEIGuardBandSamplesMinus1 = u; }
+  uint8_t getGcmpSEIGuardBandSamplesMinus1()                                                        { return m_gcmpSEIGuardBandSamplesMinus1; }
+  const CfgSEISubpictureLevel& getSubpicureLevelInfoSEICfg() const                                  { return m_cfgSubpictureLevelInfoSEI; }
+  void     setSubpicureLevelInfoSEICfg(const CfgSEISubpictureLevel& cfg)                            { m_cfgSubpictureLevelInfoSEI = cfg; }
+  bool     getSampleAspectRatioInfoSEIEnabled() const                                                       { return m_sampleAspectRatioInfoSEIEnabled; }
+  void     setSampleAspectRatioInfoSEIEnabled(const bool val)                                               { m_sampleAspectRatioInfoSEIEnabled = val; }
+  bool     getSariCancelFlag() const                                                                        { return m_sariCancelFlag; }
+  void     setSariCancelFlag(const bool val)                                                                { m_sariCancelFlag = val; }
+  bool     getSariPersistenceFlag() const                                                                   { return m_sariPersistenceFlag; }
+  void     setSariPersistenceFlag(const bool val)                                                           { m_sariPersistenceFlag = val; }
+  int      getSariAspectRatioIdc() const                                                                    { return m_sariAspectRatioIdc; }
+  void     setSariAspectRatioIdc(const int val)                                                             { m_sariAspectRatioIdc = val; }
+  int      getSariSarWidth() const                                                                          { return m_sariSarWidth; }
+  void     setSariSarWidth(const int val)                                                                   { m_sariSarWidth = val; }
+  int      getSariSarHeight() const                                                                         { return m_sariSarHeight; }
+  void     setSariSarHeight(const int val)                                                                  { m_sariSarHeight = val; }
   void  setMCTSEncConstraint(bool b)                                 { m_MCTSEncConstraint = b; }
   bool  getMCTSEncConstraint()                                       { return m_MCTSEncConstraint; }
-#if HEVC_SEI
-  void  setTimeCodeSEIEnabled(bool b)                                { m_timeCodeSEIEnabled = b; }
-  bool  getTimeCodeSEIEnabled()                                      { return m_timeCodeSEIEnabled; }
-  void  setNumberOfTimeSets(int value)                               { m_timeCodeSEINumTs = value; }
-  int   getNumberOfTimesets()                                        { return m_timeCodeSEINumTs; }
-  void  setTimeSet(SEITimeSet element, int index)                    { m_timeSetArray[index] = element; }
-  SEITimeSet &getTimeSet(int index)                                  { return m_timeSetArray[index]; }
-  const SEITimeSet &getTimeSet(int index) const                      { return m_timeSetArray[index]; }
-  void  setKneeSEIEnabled(int b)                                     { m_kneeSEIEnabled = b; }
-  bool  getKneeSEIEnabled()                                          { return m_kneeSEIEnabled; }
-  void  setKneeSEIId(int b)                                          { m_kneeSEIId = b; }
-  int   getKneeSEIId()                                               { return m_kneeSEIId; }
-  void  setKneeSEICancelFlag(bool b)                                 { m_kneeSEICancelFlag=b; }
-  bool  getKneeSEICancelFlag()                                       { return m_kneeSEICancelFlag; }
-  void  setKneeSEIPersistenceFlag(bool b)                            { m_kneeSEIPersistenceFlag = b; }
-  bool  getKneeSEIPersistenceFlag()                                  { return m_kneeSEIPersistenceFlag; }
-  void  setKneeSEIInputDrange(int b)                                 { m_kneeSEIInputDrange = b; }
-  int   getKneeSEIInputDrange()                                      { return m_kneeSEIInputDrange; }
-  void  setKneeSEIInputDispLuminance(int b)                          { m_kneeSEIInputDispLuminance = b; }
-  int   getKneeSEIInputDispLuminance()                               { return m_kneeSEIInputDispLuminance; }
-  void  setKneeSEIOutputDrange(int b)                                { m_kneeSEIOutputDrange = b; }
-  int   getKneeSEIOutputDrange()                                     { return m_kneeSEIOutputDrange; }
-  void  setKneeSEIOutputDispLuminance(int b)                         { m_kneeSEIOutputDispLuminance = b; }
-  int   getKneeSEIOutputDispLuminance()                              { return m_kneeSEIOutputDispLuminance; }
-  void  setKneeSEINumKneePointsMinus1(int b)                         { m_kneeSEINumKneePointsMinus1 = b; }
-  int   getKneeSEINumKneePointsMinus1()                              { return m_kneeSEINumKneePointsMinus1; }
-  void  setKneeSEIInputKneePoint(int *p)                             { m_kneeSEIInputKneePoint = p; }
-  int*  getKneeSEIInputKneePoint()                                   { return m_kneeSEIInputKneePoint; }
-  void  setKneeSEIOutputKneePoint(int *p)                            { m_kneeSEIOutputKneePoint = p; }
-  int*  getKneeSEIOutputKneePoint()                                  { return m_kneeSEIOutputKneePoint; }
-  void  setColourRemapInfoSEIFileRoot( const std::string &s )        { m_colourRemapSEIFileRoot = s; }
-  const std::string &getColourRemapInfoSEIFileRoot() const           { return m_colourRemapSEIFileRoot; }
   void  setMasteringDisplaySEI(const SEIMasteringDisplay &src)       { m_masteringDisplay = src; }
 #if U0033_ALTERNATIVE_TRANSFER_CHARACTERISTICS_SEI
   void  setSEIAlternativeTransferCharacteristicsSEIEnable( bool b)   { m_alternativeTransferCharacteristicsSEIEnabled = b;    }
@@ -1566,59 +1859,244 @@ public:
   void  setSEIPreferredTransferCharacteristics(uint8_t v)              { m_preferredTransferCharacteristics = v;    }
   uint8_t getSEIPreferredTransferCharacteristics() const               { return m_preferredTransferCharacteristics; }
 #endif
-  void  setSEIGreenMetadataInfoSEIEnable( bool b)                    { m_greenMetadataInfoSEIEnabled = b;    }
-  bool  getSEIGreenMetadataInfoSEIEnable( ) const                    { return m_greenMetadataInfoSEIEnabled; }
-  void  setSEIGreenMetadataType(uint8_t v)                             { m_greenMetadataType = v;    }
-  uint8_t getSEIGreenMetadataType() const                              { return m_greenMetadataType; }
-  void  setSEIXSDMetricType(uint8_t v)                                 { m_xsdMetricType = v;    }
-  uint8_t getSEIXSDMetricType() const                                  { return m_xsdMetricType; }
-
   const SEIMasteringDisplay &getMasteringDisplaySEI() const          { return m_masteringDisplay; }
-#endif
+  // film grain SEI
+  void  setFilmGrainCharactersticsSEIEnabled (bool b)                { m_fgcSEIEnabled = b; }
+  bool  getFilmGrainCharactersticsSEIEnabled()                       { return m_fgcSEIEnabled; }
+  void  setFilmGrainCharactersticsSEICancelFlag(bool b)              { m_fgcSEICancelFlag = b; }
+  bool  getFilmGrainCharactersticsSEICancelFlag()                    { return m_fgcSEICancelFlag; }
+  void  setFilmGrainCharactersticsSEIPersistenceFlag(bool b)         { m_fgcSEIPersistenceFlag = b; }
+  bool  getFilmGrainCharactersticsSEIPersistenceFlag()               { return m_fgcSEIPersistenceFlag; }
+  void  setFilmGrainCharactersticsSEIModelID(uint8_t v )             { m_fgcSEIModelID = v; }
+  uint8_t getFilmGrainCharactersticsSEIModelID()                     { return m_fgcSEIModelID; }
+  void  setFilmGrainCharactersticsSEISepColourDescPresent(bool b)    { m_fgcSEISepColourDescPresentFlag = b; }
+  bool  getFilmGrainCharactersticsSEISepColourDescPresent()          { return m_fgcSEISepColourDescPresentFlag; }
+  void  setFilmGrainCharactersticsSEIBlendingModeID(uint8_t v )      { m_fgcSEIBlendingModeID = v; }
+  uint8_t getFilmGrainCharactersticsSEIBlendingModeID()              { return m_fgcSEIBlendingModeID; }
+  void  setFilmGrainCharactersticsSEILog2ScaleFactor(uint8_t v )     { m_fgcSEILog2ScaleFactor = v; }
+  uint8_t getFilmGrainCharactersticsSEILog2ScaleFactor()             { return m_fgcSEILog2ScaleFactor; }
+  void  setFGCSEICompModelPresent(bool b, int index)                 { m_fgcSEICompModelPresent[index] = b; }
+  bool  getFGCSEICompModelPresent(int index)                         { return m_fgcSEICompModelPresent[index]; }
+  // cll SEI
+  void  setCLLSEIEnabled(bool b)                                     { m_cllSEIEnabled = b; }
+  bool  getCLLSEIEnabled()                                           { return m_cllSEIEnabled; }
+  void  setCLLSEIMaxContentLightLevel (uint16_t v)                   { m_cllSEIMaxContentLevel = v; }
+  uint16_t getCLLSEIMaxContentLightLevel()                           { return m_cllSEIMaxContentLevel; }
+  void  setCLLSEIMaxPicAvgLightLevel(uint16_t v)                     { m_cllSEIMaxPicAvgLevel = v; }
+  uint16_t getCLLSEIMaxPicAvgLightLevel()                            { return m_cllSEIMaxPicAvgLevel; }
+  // ave SEI
+  void  setAmbientViewingEnvironmentSEIEnabled (bool b)              { m_aveSEIEnabled = b; }
+  bool  getAmbientViewingEnvironmentSEIEnabled ()                    { return m_aveSEIEnabled; }
+  void  setAmbientViewingEnvironmentSEIIlluminance( uint32_t v )     { m_aveSEIAmbientIlluminance = v; }
+  uint32_t getAmbientViewingEnvironmentSEIIlluminance()              { return m_aveSEIAmbientIlluminance; }
+  void  setAmbientViewingEnvironmentSEIAmbientLightX( uint16_t v )   { m_aveSEIAmbientLightX = v; }
+  uint16_t getAmbientViewingEnvironmentSEIAmbientLightX()            { return m_aveSEIAmbientLightX; }
+  void  setAmbientViewingEnvironmentSEIAmbientLightY( uint16_t v )   { m_aveSEIAmbientLightY = v; }
+  uint16_t getAmbientViewingEnvironmentSEIAmbientLightY()            { return m_aveSEIAmbientLightY; }
+  // colour tranform information sei
+  void      setCtiSEIEnabled(bool b) { m_ctiSEIEnabled = b; }
+  bool      getCtiSEIEnabled() { return m_ctiSEIEnabled; }
+  void      setCtiSEIId(uint32_t b) { m_ctiSEIId = b; }
+  uint32_t  getCtiSEIId() { return m_ctiSEIId; }
+  void      setCtiSEISignalInfoFlag(bool b) { m_ctiSEISignalInfoFlag = b; }
+  bool      getCtiSEISignalInfoFlag() { return m_ctiSEISignalInfoFlag; }
+  void      setCtiSEIFullRangeFlag(bool b) { m_ctiSEIFullRangeFlag = b; }
+  bool      getCtiSEIFullRangeFlag() { return m_ctiSEIFullRangeFlag; }
+  uint32_t  getCtiSEIPrimaries() { return m_ctiSEIPrimaries; }
+  void      setCtiSEIPrimaries(uint32_t v) { m_ctiSEIPrimaries = v; }
+  uint32_t  getCtiSEITransferFunction() { return m_ctiSEITransferFunction; }
+  void      setCtiSEITransferFunction(uint32_t v) { m_ctiSEITransferFunction = v; }
+  uint32_t  getCtiSEIMatrixCoefs() { return m_ctiSEIMatrixCoefs; }
+  void      setCtiSEIMatrixCoefs(uint32_t v) { m_ctiSEIMatrixCoefs = v; }
+  void      setCtiSEICrossComponentFlag(bool b) { m_ctiSEICrossComponentFlag = b; }
+  bool      getCtiSEICrossComponentFlag() { return m_ctiSEICrossComponentFlag; }
+  void      setCtiSEICrossComponentInferred(bool b) { m_ctiSEICrossComponentInferred = b; }
+  bool      getCtiSEICrossComponentInferred() { return m_ctiSEICrossComponentInferred; }
+  uint32_t  getCtiSEINbChromaLut() { return m_ctiSEINumberChromaLut; }
+  void      setCtiSEINbChromaLut(uint32_t v) { m_ctiSEINumberChromaLut = v; }
+  int       getCtiSEIChromaOffset() { return m_ctiSEIChromaOffset; }
+  void      setCtiSEIChromaOffset(int v) { m_ctiSEIChromaOffset = v; }
+  const LutModel&  getCtiSEILut(int idx) const { return m_ctiSEILut[idx]; }
+  void      setCtiSEILut(LutModel& cmp, int idx) { m_ctiSEILut[idx] = cmp; }
+  // ccv SEI
+  void     setCcvSEIEnabled(bool b)                                  { m_ccvSEIEnabled = b; }
+  bool     getCcvSEIEnabled()                                        { return m_ccvSEIEnabled; }
+  void     setCcvSEICancelFlag(bool b)                               { m_ccvSEICancelFlag = b; }
+  bool     getCcvSEICancelFlag()                                     { return m_ccvSEICancelFlag; }
+  void     setCcvSEIPersistenceFlag(bool b)                          { m_ccvSEIPersistenceFlag = b; }
+  bool     getCcvSEIPersistenceFlag()                                { return m_ccvSEIPersistenceFlag; }
+  void     setCcvSEIPrimariesPresentFlag(bool b)                     { m_ccvSEIPrimariesPresentFlag = b; }
+  bool     getCcvSEIPrimariesPresentFlag()                           { return m_ccvSEIPrimariesPresentFlag; }
+  void     setCcvSEIMinLuminanceValuePresentFlag(bool b)             { m_ccvSEIMinLuminanceValuePresentFlag = b; }
+  bool     getCcvSEIMinLuminanceValuePresentFlag()                   { return m_ccvSEIMinLuminanceValuePresentFlag; }
+  void     setCcvSEIMaxLuminanceValuePresentFlag(bool b)             { m_ccvSEIMaxLuminanceValuePresentFlag = b; }
+  bool     getCcvSEIMaxLuminanceValuePresentFlag()                   { return m_ccvSEIMaxLuminanceValuePresentFlag; }
+  void     setCcvSEIAvgLuminanceValuePresentFlag(bool b)             { m_ccvSEIAvgLuminanceValuePresentFlag = b; }
+  bool     getCcvSEIAvgLuminanceValuePresentFlag()                   { return m_ccvSEIAvgLuminanceValuePresentFlag; }
+  void     setCcvSEIPrimariesX(double dValue, int index)             { m_ccvSEIPrimariesX[index] = dValue; }
+  double   getCcvSEIPrimariesX(int index)                            { return m_ccvSEIPrimariesX[index]; }
+  void     setCcvSEIPrimariesY(double dValue, int index)             { m_ccvSEIPrimariesY[index] = dValue; }
+  double   getCcvSEIPrimariesY(int index)                            { return m_ccvSEIPrimariesY[index]; }
+  void     setCcvSEIMinLuminanceValue  (double dValue)               { m_ccvSEIMinLuminanceValue = dValue; }
+  double   getCcvSEIMinLuminanceValue  ()                            { return m_ccvSEIMinLuminanceValue;  }
+  void     setCcvSEIMaxLuminanceValue  (double dValue)               { m_ccvSEIMaxLuminanceValue = dValue; }
+  double   getCcvSEIMaxLuminanceValue  ()                            { return m_ccvSEIMaxLuminanceValue;  }
+  void     setCcvSEIAvgLuminanceValue  (double dValue)               { m_ccvSEIAvgLuminanceValue = dValue; }
+  double   getCcvSEIAvgLuminanceValue  ()                            { return m_ccvSEIAvgLuminanceValue;  }
+  // scalability dimension information SEI
+  void     setSdiSEIEnabled(bool b)                                  { m_sdiSEIEnabled = b; }
+  bool     getSdiSEIEnabled() const                                  { return m_sdiSEIEnabled; }
+  void     setSdiSEIMaxLayersMinus1(int i)                           { m_sdiSEIMaxLayersMinus1 = i; }
+  int      getSdiSEIMaxLayersMinus1() const                          { return m_sdiSEIMaxLayersMinus1; }
+  void     setSdiSEIMultiviewInfoFlag(bool b)                        { m_sdiSEIMultiviewInfoFlag = b; }
+  bool     getSdiSEIMultiviewInfoFlag() const                        { return m_sdiSEIMultiviewInfoFlag; }
+  void     setSdiSEIAuxiliaryInfoFlag(bool b)                        { m_sdiSEIAuxiliaryInfoFlag = b; }
+  bool     getSdiSEIAuxiliaryInfoFlag() const                        { return m_sdiSEIAuxiliaryInfoFlag; }
+  void     setSdiSEIViewIdLenMinus1(int i)                           { m_sdiSEIViewIdLenMinus1 = i; }
+  int      getSdiSEIViewIdLenMinus1() const                          { return m_sdiSEIViewIdLenMinus1; }
+  void     setSdiSEILayerId(const std::vector<uint32_t>& sdiSEILayerId)   { m_sdiSEILayerId = sdiSEILayerId; }
+  uint32_t getSdiSEILayerId(int idx) const                           { return m_sdiSEILayerId[idx]; }
+  void     setSdiSEIViewIdVal(const std::vector<uint32_t>& sdiSEIViewIdVal)   { m_sdiSEIViewIdVal = sdiSEIViewIdVal; }
+  uint32_t getSdiSEIViewIdVal(int idx) const                         { return m_sdiSEIViewIdVal[idx]; }
+  void     setSdiSEIAuxId(const std::vector<uint32_t>& sdiSEIAuxId)       { m_sdiSEIAuxId = sdiSEIAuxId; }
+  uint32_t getSdiSEIAuxId(int idx) const                             { return m_sdiSEIAuxId[idx]; }
+  void     setSdiSEINumAssociatedPrimaryLayersMinus1(const std::vector<uint32_t>& sdiSEINumAssociatedPrimaryLayersMinus1)   { m_sdiSEINumAssociatedPrimaryLayersMinus1 = sdiSEINumAssociatedPrimaryLayersMinus1; }
+  uint32_t getSdiSEINumAssociatedPrimaryLayersMinus1(int idx) const  { return m_sdiSEINumAssociatedPrimaryLayersMinus1[idx]; }
+  // multiview acquisition information SEI
+  void     setMaiSEIEnabled(bool b)                                  { m_maiSEIEnabled = b; }
+  bool     getMaiSEIEnabled() const                                  { return m_maiSEIEnabled; }
+  void     setMaiSEIIntrinsicParamFlag(bool b)                       { m_maiSEIIntrinsicParamFlag = b; }
+  bool     getMaiSEIIntrinsicParamFlag() const                       { return m_maiSEIIntrinsicParamFlag; }
+  void     setMaiSEIExtrinsicParamFlag(bool b)                       { m_maiSEIExtrinsicParamFlag = b; }
+  bool     getMaiSEIExtrinsicParamFlag() const                       { return m_maiSEIExtrinsicParamFlag; }
+  void     setMaiSEINumViewsMinus1(int i)                            { m_maiSEINumViewsMinus1 = i; }
+  int      getMaiSEINumViewsMinus1() const                           { return m_maiSEINumViewsMinus1; }
+  void     setMaiSEIIntrinsicParamsEqualFlag(bool b)                 { m_maiSEIIntrinsicParamsEqualFlag = b; }
+  bool     getMaiSEIIntrinsicParamsEqualFlag() const                 { return m_maiSEIIntrinsicParamsEqualFlag; }
+  void     setMaiSEIPrecFocalLength(int i)                           { m_maiSEIPrecFocalLength= i; }
+  int      getMaiSEIPrecFocalLength() const                          { return m_maiSEIPrecFocalLength; }
+  void     setMaiSEIPrecPrincipalPoint(int i)                        { m_maiSEIPrecPrincipalPoint = i; }
+  int      getMaiSEIPrecPrincipalPoint() const                       { return m_maiSEIPrecPrincipalPoint; }
+  void     setMaiSEIPrecSkewFactor(int i)                            { m_maiSEIPrecSkewFactor = i; }
+  int      getMaiSEIPrecSkewFactor() const                           { return m_maiSEIPrecSkewFactor; }
+  void     setMaiSEISignFocalLengthX(const std::vector<bool>& maiSEISignFocalLengthX) { m_maiSEISignFocalLengthX = maiSEISignFocalLengthX; }
+  bool     getMaiSEISignFocalLengthX(int idx) const                  { return m_maiSEISignFocalLengthX[idx]; }
+  void     setMaiSEIExponentFocalLengthX(const std::vector<uint32_t>& maiSEIExponentFocalLengthX) { m_maiSEIExponentFocalLengthX = maiSEIExponentFocalLengthX; }
+  uint32_t      getMaiSEIExponentFocalLengthX(int idx) const              { return m_maiSEIExponentFocalLengthX[idx]; }
+  void     setMaiSEIMantissaFocalLengthX(const std::vector<uint32_t>& maiSEIMantissaFocalLengthX) { m_maiSEIMantissaFocalLengthX = maiSEIMantissaFocalLengthX; }
+  uint32_t      getMaiSEIMantissaFocalLengthX(int idx) const              { return m_maiSEIMantissaFocalLengthX[idx]; }
+  void     setMaiSEISignFocalLengthY(const std::vector<bool>& maiSEISignFocalLengthY) { m_maiSEISignFocalLengthY = maiSEISignFocalLengthY; }
+  bool     getMaiSEISignFocalLengthY(int idx) const                  { return m_maiSEISignFocalLengthY[idx]; }
+  void     setMaiSEIExponentFocalLengthY(const std::vector<uint32_t>& maiSEIExponentFocalLengthY) { m_maiSEIExponentFocalLengthY = maiSEIExponentFocalLengthY; }
+  uint32_t      getMaiSEIExponentFocalLengthY(int idx) const              { return m_maiSEIExponentFocalLengthY[idx]; }
+  void     setMaiSEIMantissaFocalLengthY(const std::vector<uint32_t>& maiSEIMantissaFocalLengthY) { m_maiSEIMantissaFocalLengthY = maiSEIMantissaFocalLengthY; }
+  uint32_t      getMaiSEIMantissaFocalLengthY(int idx) const              { return m_maiSEIMantissaFocalLengthY[idx]; }
+  void     setMaiSEISignPrincipalPointX(const std::vector<bool>& maiSEISignPrincipalPointX) { m_maiSEISignPrincipalPointX = maiSEISignPrincipalPointX; }
+  bool     getMaiSEISignPrincipalPointX(int idx) const               { return m_maiSEISignPrincipalPointX[idx]; }
+  void     setMaiSEIExponentPrincipalPointX(const std::vector<uint32_t>& maiSEIExponentPrincipalPointX) { m_maiSEIExponentPrincipalPointX = maiSEIExponentPrincipalPointX; }
+  uint32_t      getMaiSEIExponentPrincipalPointX(int idx) const           { return m_maiSEIExponentPrincipalPointX[idx]; }
+  void     setMaiSEIMantissaPrincipalPointX(const std::vector<uint32_t>& maiSEIMantissaPrincipalPointX) { m_maiSEIMantissaPrincipalPointX = maiSEIMantissaPrincipalPointX; }
+  uint32_t      getMaiSEIMantissaPrincipalPointX(int idx) const           { return m_maiSEIMantissaPrincipalPointX[idx]; }
+  void     setMaiSEISignPrincipalPointY(const std::vector<bool>& maiSEISignPrincipalPointY) { m_maiSEISignPrincipalPointY = maiSEISignPrincipalPointY; }
+  bool     getMaiSEISignPrincipalPointY(int idx) const               { return m_maiSEISignPrincipalPointY[idx]; }
+  void     setMaiSEIExponentPrincipalPointY(const std::vector<uint32_t>& maiSEIExponentPrincipalPointY) { m_maiSEIExponentPrincipalPointY = maiSEIExponentPrincipalPointY; }
+  uint32_t      getMaiSEIExponentPrincipalPointY(int idx) const           { return m_maiSEIExponentPrincipalPointY[idx]; }
+  void     setMaiSEIMantissaPrincipalPointY(const std::vector<uint32_t>& maiSEIMantissaPrincipalPointY) { m_maiSEIMantissaPrincipalPointY = maiSEIMantissaPrincipalPointY; }
+  uint32_t      getMaiSEIMantissaPrincipalPointY(int idx) const           { return m_maiSEIMantissaPrincipalPointY[idx]; }
+  void     setMaiSEISignSkewFactor(const std::vector<bool>& maiSEISignSkewFactor) { m_maiSEISignSkewFactor = maiSEISignSkewFactor; }
+  bool     getMaiSEISignSkewFactor(int idx) const                    { return m_maiSEISignSkewFactor[idx]; }
+  void     setMaiSEIExponentSkewFactor(const std::vector<uint32_t>& maiSEIExponentSkewFactor) { m_maiSEIExponentSkewFactor = maiSEIExponentSkewFactor; }
+  uint32_t      getMaiSEIExponentSkewFactor(int idx) const                { return m_maiSEIExponentSkewFactor[idx]; }
+  void     setMaiSEIMantissaSkewFactor(const std::vector<uint32_t>& maiSEIMantissaSkewFactor) { m_maiSEIMantissaSkewFactor = maiSEIMantissaSkewFactor; }
+  uint32_t      getMaiSEIMantissaSkewFactor(int idx) const                { return m_maiSEIMantissaSkewFactor[idx]; }
+  void     setMaiSEIPrecRotationParam(int i)                         { m_maiSEIPrecRotationParam = i; }
+  int      getMaiSEIPrecRotationParam() const                        { return m_maiSEIPrecRotationParam; }
+  void     setMaiSEIPrecTranslationParam(int i)                      { m_maiSEIPrecTranslationParam = i; }
+  int      getMaiSEIPrecTranslationParam() const                     { return m_maiSEIPrecTranslationParam; }
+  // alpha channel information SEI
+  void     setAciSEIEnabled(bool b)                                  { m_aciSEIEnabled = b; }
+  bool     getAciSEIEnabled() const                                  { return m_aciSEIEnabled; }
+  void     setAciSEICancelFlag(bool b)                               { m_aciSEICancelFlag = b; }
+  bool     getAciSEICancelFlag() const                               { return m_aciSEICancelFlag; }
+  void     setAciSEIUseIdc(int value)                                { m_aciSEIUseIdc = value; }
+  int      getAciSEIUseIdc() const                                   { return m_aciSEIUseIdc; }
+  void     setAciSEIBitDepthMinus8(int value)                        { m_aciSEIBitDepthMinus8 = value; }
+  int      getAciSEIBitDepthMinus8() const                           { return m_aciSEIBitDepthMinus8; }
+  void     setAciSEITransparentValue(int value)                      { m_aciSEITransparentValue = value; }
+  int      getAciSEITransparentValue() const                         { return m_aciSEITransparentValue; }
+  void     setAciSEIOpaqueValue(int value)                           { m_aciSEIOpaqueValue = value; }
+  int      getAciSEIOpaqueValue() const                              { return m_aciSEIOpaqueValue; }
+  void     setAciSEIIncrFlag(bool b)                                 { m_aciSEIIncrFlag = b; }
+  bool     getAciSEIIncrFlag() const                                 { return m_aciSEIIncrFlag; }
+  void     setAciSEIClipFlag(bool b)                                 { m_aciSEIClipFlag = b; }
+  bool     getAciSEIClipFlag() const                                 { return m_aciSEIClipFlag; }
+  void     setAciSEIClipTypeFlag(bool b)                             { m_aciSEIClipTypeFlag = b; }
+  bool     getAciSEIClipTypeFlag() const                             { return m_aciSEIClipTypeFlag; }
+  // depth representation information SEI
+  void     setDriSEIEnabled(bool b)                                  { m_driSEIEnabled = b; }
+  bool     getDriSEIEnabled() const                                  { return m_driSEIEnabled; }
+  void     setDriSEIZNearFlag(bool b)                                { m_driSEIZNearFlag = b; }
+  bool     getDriSEIZNearFlag() const                                { return m_driSEIZNearFlag; }
+  void     setDriSEIZFarFlag(bool b)                                 { m_driSEIZFarFlag = b; }
+  bool     getDriSEIZFarFlag() const                                 { return m_driSEIZFarFlag; }
+  void     setDriSEIDMinFlag(bool b)                                 { m_driSEIDMinFlag = b; }
+  bool     getDriSEIDMinFlag() const                                 { return m_driSEIDMinFlag; }
+  void     setDriSEIDMaxFlag(bool b)                                 { m_driSEIDMaxFlag = b; }
+  bool     getDriSEIDMaxFlag() const                                 { return m_driSEIDMaxFlag; }
+  void     setDriSEIZNear(double d)                                  { m_driSEIZNear = d; }
+  double   getDriSEIZNear() const                                    { return m_driSEIZNear; }
+  void     setDriSEIZFar(double d)                                   { m_driSEIZFar = d; }
+  double   getDriSEIZFar() const                                     { return m_driSEIZFar; }
+  void     setDriSEIDMin(double d)                                   { m_driSEIDMin = d; }
+  double   getDriSEIDMin() const                                     { return m_driSEIDMin; }
+  void     setDriSEIDMax(double d)                                   { m_driSEIDMax = d; }
+  double   getDriSEIDMax() const                                     { return m_driSEIDMax; }
+  void     setDriSEIDepthRepresentationType(int i)                   { m_driSEIDepthRepresentationType = i; }
+  int      getDriSEIDepthRepresentationType() const                  { return m_driSEIDepthRepresentationType; }
+  void     setDriSEIDisparityRefViewId(int i)                        { m_driSEIDisparityRefViewId = i; }
+  int      getDriSEIDisparityRefViewId() const                       { return m_driSEIDisparityRefViewId; }
+  void     setDriSEINonlinearNumMinus1(int i)                        { m_driSEINonlinearNumMinus1 = i; }
+  int      getDriSEINonlinearNumMinus1() const                       { return m_driSEINonlinearNumMinus1; }
+  void     setDriSEINonlinearModel(const std::vector<uint32_t>& driSEINonLinearModel) { m_driSEINonlinearModel = driSEINonLinearModel; }
+  uint32_t getDriSEINonlinearModel(int idx) const                                                    { return m_driSEINonlinearModel[idx]; }
   void         setUseWP               ( bool b )                     { m_useWeightedPred   = b;    }
   void         setWPBiPred            ( bool b )                     { m_useWeightedBiPred = b;    }
   bool         getUseWP               ()                             { return m_useWeightedPred;   }
   bool         getWPBiPred            ()                             { return m_useWeightedBiPred; }
-  void         setLog2ParallelMergeLevelMinus2   ( uint32_t u )          { m_log2ParallelMergeLevelMinus2       = u;    }
-  uint32_t         getLog2ParallelMergeLevelMinus2   ()                  { return m_log2ParallelMergeLevelMinus2;       }
+  void         setLog2ParallelMergeLevelMinus2(uint32_t u)           { m_log2ParallelMergeLevelMinus2 = u; }
+  uint32_t     getLog2ParallelMergeLevelMinus2()                     { return m_log2ParallelMergeLevelMinus2; }
   void         setMaxNumMergeCand                ( uint32_t u )          { m_maxNumMergeCand = u;      }
   uint32_t         getMaxNumMergeCand                ()                  { return m_maxNumMergeCand;   }
   void         setMaxNumAffineMergeCand          ( uint32_t u )      { m_maxNumAffineMergeCand = u;    }
   uint32_t     getMaxNumAffineMergeCand          ()                  { return m_maxNumAffineMergeCand; }
-  void         setMaxNumTriangleCand             ( uint32_t u )      { m_maxNumTriangleCand = u;    }
-  uint32_t     getMaxNumTriangleCand             ()                  { return m_maxNumTriangleCand; }
-#if JVET_O0455_IBC_MAX_MERGE_NUM
+  void         setMaxNumGeoCand                  ( uint32_t u )      { m_maxNumGeoCand = u;    }
+  uint32_t     getMaxNumGeoCand                  ()                  { return m_maxNumGeoCand; }
   void         setMaxNumIBCMergeCand             ( uint32_t u )      { m_maxNumIBCMergeCand = u; }
   uint32_t     getMaxNumIBCMergeCand             ()                  { return m_maxNumIBCMergeCand; }
-#endif
   void         setUseScalingListId    ( ScalingListMode u )          { m_useScalingListId       = u;   }
   ScalingListMode getUseScalingListId    ()                          { return m_useScalingListId;      }
   void         setScalingListFileName       ( const std::string &s ) { m_scalingListFileName = s;      }
   const std::string& getScalingListFileName () const                 { return m_scalingListFileName;   }
+  void         setDisableScalingMatrixForAlternativeColourSpace(bool b) { m_disableScalingMatrixForAlternativeColourSpace = b; }
+  bool         getDisableScalingMatrixForAlternativeColourSpace()    { return m_disableScalingMatrixForAlternativeColourSpace; }
+  void         setScalingMatrixDesignatedColourSpace (bool b)        { m_scalingMatrixDesignatedColourSpace = b; }
+  bool         getScalingMatrixDesignatedColourSpace ()              { return m_scalingMatrixDesignatedColourSpace; }
+  void         setSliceLevelRpl  ( bool b )                          { m_sliceLevelRpl = b;     }
+  bool         getSliceLevelRpl  ()                                  { return m_sliceLevelRpl;  }
+  void         setSliceLevelDblk ( bool b )                          { m_sliceLevelDblk = b;    }
+  bool         getSliceLevelDblk ()                                  { return m_sliceLevelDblk; }
+  void         setSliceLevelSao  ( bool b )                          { m_sliceLevelSao = b;     }
+  bool         getSliceLevelSao  ()                                  { return m_sliceLevelSao;  }
+  void         setSliceLevelAlf  ( bool b )                          { m_sliceLevelAlf = b;     }
+  bool         getSliceLevelAlf  ()                                  { return m_sliceLevelAlf;  }
+  void         setSliceLevelWp(bool b)                               { m_sliceLevelWp = b;      }
+  bool         getSliceLevelWp()                                     { return m_sliceLevelWp;   }
+  void         setSliceLevelDeltaQp(bool b)                          { m_sliceLevelDeltaQp = b; }
+  bool         getSliceLevelDeltaQp()                                { return m_sliceLevelDeltaQp; }
+  void         setDisableScalingMatrixForLfnstBlks(bool u) { m_disableScalingMatrixForLfnstBlks = u; }
+  bool         getDisableScalingMatrixForLfnstBlks() const          { return m_disableScalingMatrixForLfnstBlks; }
   void         setTMVPModeId ( int  u )                              { m_TMVPModeId = u;    }
   int          getTMVPModeId ()                                      { return m_TMVPModeId; }
-#if JVET_O0238_PPS_OR_SLICE
-  void         setConstantSliceHeaderParamsEnabledFlag ( bool u )    { m_constantSliceHeaderParamsEnabledFlag = u; }
-  bool         getConstantSliceHeaderParamsEnabledFlag ()            { return m_constantSliceHeaderParamsEnabledFlag; }
-  void         setPPSDepQuantEnabledIdc ( int u )                    { m_PPSDepQuantEnabledIdc = u; }
-  int          getPPSDepQuantEnabledIdc ()                           { return m_PPSDepQuantEnabledIdc; }
-  void         setPPSRefPicListSPSIdc0 ( int u )                     { m_PPSRefPicListSPSIdc0 = u; }
-  int          getPPSRefPicListSPSIdc0 ()                            { return m_PPSRefPicListSPSIdc0; }
-  void         setPPSRefPicListSPSIdc1 ( int u )                     { m_PPSRefPicListSPSIdc1 = u; }
-  int          getPPSRefPicListSPSIdc1 ()                            { return m_PPSRefPicListSPSIdc1; }
-  void         setPPSTemporalMVPEnabledIdc ( int u )                 { m_PPSTemporalMVPEnabledIdc = u; }
-  int          getPPSTemporalMVPEnabledIdc ()                        { return m_PPSTemporalMVPEnabledIdc; }
-  void         setPPSMvdL1ZeroIdc ( int u )                          { m_PPSMvdL1ZeroIdc = u; }
-  int          getPPSMvdL1ZeroIdc ()                                 { return m_PPSMvdL1ZeroIdc; }
-  void         setPPSCollocatedFromL0Idc ( int u )                   { m_PPSCollocatedFromL0Idc = u; }
-  int          getPPSCollocatedFromL0Idc ()                          { return m_PPSCollocatedFromL0Idc; }
-  void         setPPSSixMinusMaxNumMergeCandPlus1 ( uint32_t u )     { m_PPSSixMinusMaxNumMergeCandPlus1 = u; }
-  uint32_t	   getPPSSixMinusMaxNumMergeCandPlus1 ()                 { return m_PPSSixMinusMaxNumMergeCandPlus1; }
-  void         setPPSFiveMinusMaxNumSubblockMergeCandPlus1 ( uint32_t u ) { m_PPSFiveMinusMaxNumSubblockMergeCandPlus1 = u; }
-  uint32_t     getPPSFiveMinusMaxNumSubblockMergeCandPlus1 ()        { return m_PPSFiveMinusMaxNumSubblockMergeCandPlus1; }
-  void         setPPSMaxNumMergeCandMinusMaxNumTriangleCandPlus1 ( uint32_t u ) { m_PPSMaxNumMergeCandMinusMaxNumTriangleCandPlus1 = u; }
-  uint32_t     getPPSMaxNumMergeCandMinusMaxNumTriangleCandPlus1 ()  { return m_PPSMaxNumMergeCandMinusMaxNumTriangleCandPlus1; }
-#endif
   WeightedPredictionMethod getWeightedPredictionMethod() const       { return m_weightedPredictionMethod; }
   void         setWeightedPredictionMethod( WeightedPredictionMethod m ) { m_weightedPredictionMethod = m; }
   void         setDepQuantEnabledFlag( bool b )                      { m_DepQuantEnabledFlag = b;    }
@@ -1647,39 +2125,41 @@ public:
   double       getInitialCpbFullness  ()                             { return m_RCInitialCpbFullness;  }
   void         setInitialCpbFullness  (double f)                     { m_RCInitialCpbFullness = f;     }
 #endif
-  bool         getTransquantBypassEnabledFlag()                      { return m_TransquantBypassEnabledFlag; }
-  void         setTransquantBypassEnabledFlag(bool flag)             { m_TransquantBypassEnabledFlag = flag; }
-  bool         getCUTransquantBypassFlagForceValue() const           { return m_CUTransquantBypassFlagForce; }
-  void         setCUTransquantBypassFlagForceValue(bool flag)        { m_CUTransquantBypassFlagForce = flag; }
   CostMode     getCostMode( ) const                                  { return m_costMode; }
   void         setCostMode(CostMode m )                              { m_costMode = m; }
+  bool         getTSRCdisableLL       ()                             { return m_TSRCdisableLL;         }
+  void         setTSRCdisableLL       ( bool b )                     { m_TSRCdisableLL = b;            }
 
-  void         setVPS(VPS *p)                                        { m_cVPS = *p; }
-  VPS *        getVPS()                                              { return &m_cVPS; }
-  void         setDPS(DPS *p)                                        { m_dps = *p; }
-  DPS*         getDPS()                                              { return &m_dps; }
+  void         setOPI(OPI *p)                                        { m_opi = *p; }
+  OPI*         getOPI()                                              { return &m_opi; }
+
+  void         setDCI(DCI *p)                                        { m_dci = *p; }
+  DCI*         getDCI()                                              { return &m_dci; }
   void         setUseRecalculateQPAccordingToLambda (bool b)         { m_recalculateQPAccordingToLambda = b;    }
   bool         getUseRecalculateQPAccordingToLambda ()               { return m_recalculateQPAccordingToLambda; }
 
-  void         setEfficientFieldIRAPEnabled( bool b )                { m_bEfficientFieldIRAPEnabled = b; }
-  bool         getEfficientFieldIRAPEnabled( ) const                 { return m_bEfficientFieldIRAPEnabled; }
+  void setFieldSeqFlag(const bool b) { m_fieldSeqFlag = b; }
+  bool getFieldSeqFlag() const { return m_fieldSeqFlag; }
 
-  void         setHarmonizeGopFirstFieldCoupleEnabled( bool b )      { m_bHarmonizeGopFirstFieldCoupleEnabled = b; }
-  bool         getHarmonizeGopFirstFieldCoupleEnabled( ) const       { return m_bHarmonizeGopFirstFieldCoupleEnabled; }
+  void setEfficientFieldIRAPEnabled(const bool b) { m_efficientFieldIRAPEnabled = b; }
+  bool getEfficientFieldIRAPEnabled() const { return m_efficientFieldIRAPEnabled; }
 
-#if HEVC_SEI
-  void         setActiveParameterSetsSEIEnabled ( int b )            { m_activeParameterSetsSEIEnabled = b; }
-  int          getActiveParameterSetsSEIEnabled ()                   { return m_activeParameterSetsSEIEnabled; }
-#endif
+  void setHarmonizeGopFirstFieldCoupleEnabled(const bool b) { m_harmonizeGopFirstFieldCoupleEnabled = b; }
+  bool getHarmonizeGopFirstFieldCoupleEnabled() const { return m_harmonizeGopFirstFieldCoupleEnabled; }
 
-  bool         getDecodingParameterSetEnabled()                      { return m_decodingParameterSetEnabled; }
-  void         setDecodingParameterSetEnabled(bool i)                { m_decodingParameterSetEnabled = i; }
-#if FIX_HRD_O0189
+  bool         getOPIEnabled()                      { return m_OPIEnabled; }
+  void         setOPIEnabled(bool i)                { m_OPIEnabled = i; }
+  void         setHtidPlus1(int HTid)               { m_opi.setHtidInfoPresentFlag(true); m_opi.setOpiHtidPlus1(HTid); }
+  void         setTargetOlsIdx(int TOlsIdx)         { m_opi.setOlsInfoPresentFlag(true); m_opi.setOpiOlsIdx(TOlsIdx); }
+
+  bool         getDCIEnabled()                      { return m_DCIEnabled; }
+  void         setDCIEnabled(bool i)                { m_DCIEnabled = i; }
   bool         getHrdParametersPresentFlag()                         { return m_hrdParametersPresentFlag; }
   void         setHrdParametersPresentFlag(bool i)                   { m_hrdParametersPresentFlag = i; }
-#endif
   bool         getVuiParametersPresentFlag()                         { return m_vuiParametersPresentFlag; }
   void         setVuiParametersPresentFlag(bool i)                   { m_vuiParametersPresentFlag = i; }
+  bool         getSamePicTimingInAllOLS() const                      { return m_samePicTimingInAllOLS; }
+  void         setSamePicTimingInAllOLS(bool b)                      { m_samePicTimingInAllOLS = b; }
   bool         getAspectRatioInfoPresentFlag()                       { return m_aspectRatioInfoPresentFlag; }
   void         setAspectRatioInfoPresentFlag(bool i)                 { m_aspectRatioInfoPresentFlag = i; }
   int          getAspectRatioIdc()                                   { return m_aspectRatioIdc; }
@@ -1708,8 +2188,6 @@ public:
   void         setOverscanInfoPresentFlag(bool i)                    { m_overscanInfoPresentFlag = i; }
   bool         getOverscanAppropriateFlag()                          { return m_overscanAppropriateFlag; }
   void         setOverscanAppropriateFlag(bool i)                    { m_overscanAppropriateFlag = i; }
-  bool         getVideoSignalTypePresentFlag()                       { return m_videoSignalTypePresentFlag; }
-  void         setVideoSignalTypePresentFlag(bool i)                 { m_videoSignalTypePresentFlag = i; }
   bool         getVideoFullRangeFlag()                               { return m_videoFullRangeFlag; }
   void         setVideoFullRangeFlag(bool i)                         { m_videoFullRangeFlag = i; }
 
@@ -1722,32 +2200,35 @@ public:
   bool         getNonPackedConstraintFlag() const                    { return m_nonPackedConstraintFlag; }
   void         setNonPackedConstraintFlag(bool b)                    { m_nonPackedConstraintFlag = b; }
 
-  bool         getFrameOnlyConstraintFlag() const                    { return m_frameOnlyConstraintFlag; }
-  void         setFrameOnlyConstraintFlag(bool b)                    { m_frameOnlyConstraintFlag = b; }
+  bool         getNonProjectedConstraintFlag() const                 { return m_nonProjectedConstraintFlag; }
+  void         setNonProjectedConstraintFlag(bool b)                 { m_nonProjectedConstraintFlag = b; }
 
-  uint32_t         getBitDepthConstraintValue() const                    { return m_bitDepthConstraintValue; }
-  void         setBitDepthConstraintValue(uint32_t v)                    { m_bitDepthConstraintValue=v; }
+  bool         getNoRprConstraintFlag() const                        { return m_noRprConstraintFlag; }
+  void         setNoRprConstraintFlag(bool b)                        { m_noRprConstraintFlag = b; }
 
-  ChromaFormat getChromaFormatConstraintValue() const                { return m_chromaFormatConstraintValue; }
-  void         setChromaFormatConstraintValue(ChromaFormat v)        { m_chromaFormatConstraintValue=v; }
+  bool         getNoResChangeInClvsConstraintFlag() const            { return m_noResChangeInClvsConstraintFlag; }
+  void         setNoResChangeInClvsConstraintFlag(bool b)            { m_noResChangeInClvsConstraintFlag = b; }
 
-  bool         getIntraConstraintFlag() const                        { return m_intraConstraintFlag; }
-  void         setIntraConstraintFlag(bool b)                        { m_intraConstraintFlag=b; }
+  bool         getOneTilePerPicConstraintFlag() const                { return m_oneTilePerPicConstraintFlag; }
+  void         setOneTilePerPicConstraintFlag(bool b)                { m_oneTilePerPicConstraintFlag = b; }
 
-  bool         getOnePictureOnlyConstraintFlag() const               { return m_onePictureOnlyConstraintFlag; }
-  void         setOnePictureOnlyConstraintFlag(bool b)               { m_onePictureOnlyConstraintFlag=b; }
+  bool         getPicHeaderInSliceHeaderConstraintFlag() const { return m_picHeaderInSliceHeaderConstraintFlag; }
+  void         setPicHeaderInSliceHeaderConstraintFlag(bool b) { m_picHeaderInSliceHeaderConstraintFlag = b; }
 
-  bool         getLowerBitRateConstraintFlag() const                 { return m_lowerBitRateConstraintFlag; }
-  void         setLowerBitRateConstraintFlag(bool b)                 { m_lowerBitRateConstraintFlag=b; }
+  bool         getOneSlicePerPicConstraintFlag() const               { return m_oneSlicePerPicConstraintFlag; }
+  void         setOneSlicePerPicConstraintFlag(bool b)               { m_oneSlicePerPicConstraintFlag = b; }
 
-#if HEVC_SEI
-  bool         getChromaResamplingFilterHintEnabled()                { return m_chromaResamplingFilterHintEnabled;}
-  void         setChromaResamplingFilterHintEnabled(bool i)          { m_chromaResamplingFilterHintEnabled = i;}
-  int          getChromaResamplingHorFilterIdc()                     { return m_chromaResamplingHorFilterIdc;}
-  void         setChromaResamplingHorFilterIdc(int i)                { m_chromaResamplingHorFilterIdc = i;}
-  int          getChromaResamplingVerFilterIdc()                     { return m_chromaResamplingVerFilterIdc;}
-  void         setChromaResamplingVerFilterIdc(int i)                { m_chromaResamplingVerFilterIdc = i;}
-#endif
+  bool         getNoIdrRplConstraintFlag() const                     { return m_noIdrRplConstraintFlag; }
+  void         setNoIdrRplConstraintFlag(bool b)                     { m_noIdrRplConstraintFlag = b; }
+
+  bool         getNoRectSliceConstraintFlag() const                  { return m_noRectSliceConstraintFlag; }
+  void         setNoRectSliceConstraintFlag(bool b)                  { m_noRectSliceConstraintFlag = b; }
+
+  bool         getOneSlicePerSubpicConstraintFlag() const            { return m_oneSlicePerSubpicConstraintFlag; }
+  void         setOneSlicePerSubpicConstraintFlag(bool b)            { m_oneSlicePerSubpicConstraintFlag = b; }
+
+  bool         getNoSubpicInfoConstraintFlag() const                 { return m_noSubpicInfoConstraintFlag; }
+  void         setNoSubpicInfoConstraintFlag(bool b)                 { m_noSubpicInfoConstraintFlag = b; }
 
   void         setSummaryOutFilename(const std::string &s)           { m_summaryOutFilename = s; }
   const std::string& getSummaryOutFilename() const                   { return m_summaryOutFilename; }
@@ -1778,23 +2259,33 @@ public:
   void         setDebugCTU( int i )                                  { m_debugCTU = i; }
   int          getDebugCTU()                                   const { return m_debugCTU; }
 
-#if ENABLE_SPLIT_PARALLELISM
-  void         setNumSplitThreads( int n )                           { m_numSplitThreads = n; }
-  int          getNumSplitThreads()                            const { return m_numSplitThreads; }
-  void         setForceSingleSplitThread( bool b )                   { m_forceSingleSplitThread = b; }
-  int          getForceSingleSplitThread()                     const { return m_forceSingleSplitThread; }
-#endif
-#if ENABLE_WPP_PARALLELISM
-  void         setNumWppThreads( int n )                             { m_numWppThreads = n; }
-  int          getNumWppThreads()                              const { return m_numWppThreads; }
-  void         setNumWppExtraLines( int n )                          { m_numWppExtraLines = n; }
-  int          getNumWppExtraLines()                           const { return m_numWppExtraLines; }
-  void         setEnsureWppBitEqual( bool b)                         { m_ensureWppBitEqual = b; }
-  bool         getEnsureWppBitEqual()                          const { return m_ensureWppBitEqual; }
-#endif
   void         setUseALF( bool b ) { m_alf = b; }
   bool         getUseALF()                                      const { return m_alf; }
-
+#if JVET_W0129_ENABLE_ALF_TRUEORG
+  void         setAlfTrueOrg( bool b )                                { m_alfTrueOrg = b; }
+  bool         getAlfTrueOrg()                                  const { return m_alfTrueOrg; }
+#else
+  void         setAlfSaoTrueOrg( bool b )                             { m_alfSaoTrueOrg = b; }
+  bool         getAlfSaoTrueOrg()                               const { return m_alfSaoTrueOrg; }
+#endif
+  void         setALFStrengthLuma(double s)                     { m_alfStrengthLuma = s; }
+  double       getALFStrengthLuma()                             const { return m_alfStrengthLuma; }
+  void         setALFAllowPredefinedFilters(bool b)             { m_alfAllowPredefinedFilters = b; }
+  bool         getALFAllowPredefinedFilters()                   const { return m_alfAllowPredefinedFilters; }
+  void         setCCALFStrength(double s)                       { m_ccalfStrength = s; }
+  double       getCCALFStrength()                               const { return m_ccalfStrength; }
+  void         setALFStrengthChroma(double s)                  { m_alfStrengthChroma = s; }
+  double       getALFStrengthChroma()                          const { return m_alfStrengthChroma; }
+  void         setALFStrengthTargetLuma(double s)              { m_alfStrengthTargetLuma = s; }
+  double       getALFStrengthTargetLuma()                      const { return m_alfStrengthTargetLuma; }
+  void         setALFStrengthTargetChroma(double s)            { m_alfStrengthTargetChroma = s; }
+  double       getALFStrengthTargetChroma()                    const { return m_alfStrengthTargetChroma; }
+  void         setCCALFStrengthTarget(double s)                { m_ccalfStrengthTarget = s; }
+  double       getCCALFStrengthTarget()                        const { return m_ccalfStrengthTarget; }
+  void         setUseCCALF( bool b )                                  { m_ccalf = b; }
+  bool         getUseCCALF()                                    const { return m_ccalf; }
+  void         setCCALFQpThreshold( int b )                           { m_ccalfQpThreshold = b; }
+  int          getCCALFQpThreshold()                            const { return m_ccalfQpThreshold; }
 #if JVET_O0756_CALCULATE_HDRMETRICS
   void        setWhitePointDeltaE( uint32_t index, double value )     { m_whitePointDeltaE[ index ] = value; }
   double      getWhitePointDeltaE( uint32_t index )             const { return m_whitePointDeltaE[ index ]; }
@@ -1821,15 +2312,23 @@ public:
   void        setCalculateHdrMetrics(bool value)                      { m_calculateHdrMetrics = value;}
   bool        getCalcluateHdrMetrics()                          const { return m_calculateHdrMetrics;}
 #endif
-
-#if JVET_O1164_RPR
+  void        setRprEnabled(bool b)                                   { m_rprEnabledFlag = b; }
+  bool        isRprEnabled()                                    const { return m_rprEnabledFlag; }
   void        setScalingRatio( double hor, double ver )              { m_scalingRatioHor = hor, m_scalingRatioVer = ver;  }
-  void        setRPREnabled( bool b )                                { m_rprEnabled = b;    }
-  bool        isRPREnabled()                                   const { return m_rprEnabled; }
+  void        setResChangeInClvsEnabled(bool b)                      { m_resChangeInClvsEnabled = b; }
+  bool        isResChangeInClvsEnabled()                        const { return m_resChangeInClvsEnabled; }
   void        setSwitchPocPeriod( int p )                            { m_switchPocPeriod = p;}
   void        setUpscaledOutput( int b )                             { m_upscaledOutput = b; }
   int         getUpscaledOutput()                              const { return m_upscaledOutput; }
-#endif
+
+  void        setNumRefLayers( int* numRefLayers )                   { std::memcpy( m_numRefLayers, numRefLayers, sizeof( m_numRefLayers ) ); }
+  int         getNumRefLayers( int layerIdx )                  const { return m_numRefLayers[layerIdx];  }
+
+  void        setAvoidIntraInDepLayer(bool b)                        { m_avoidIntraInDepLayer = b; }
+  bool        getAvoidIntraInDepLayer()                        const { return m_avoidIntraInDepLayer; }
+
+  const CfgVPSParameters& getVPSParameters() const                                  { return m_cfgVPSParameters; }
+  void                    setVPSParameters(const CfgVPSParameters& cfg)             { m_cfgVPSParameters = cfg; }
 };
 
 //! \}

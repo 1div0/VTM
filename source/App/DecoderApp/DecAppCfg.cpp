@@ -3,7 +3,7 @@
  * and contributor rights, including patent rights, and no such rights are
  * granted under this license.
  *
- * Copyright (c) 2010-2019, ITU/ISO/IEC
+ * Copyright (c) 2010-2021, ITU/ISO/IEC
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -77,6 +77,8 @@ bool DecAppCfg::parseCfg( int argc, char* argv[] )
   ("BitstreamFile,b",           m_bitstreamFileName,                   string(""), "bitstream input file name")
   ("ReconFile,o",               m_reconFileName,                       string(""), "reconstructed YUV output file name\n")
 
+  ("OplFile,-opl",              m_oplFilename ,                        string(""), "opl-file name without extension for conformance testing\n")
+
 #if ENABLE_SIMD_OPT
   ("SIMD",                      ignore,                                string(""), "SIMD extension to use (SCALAR, SSE41, SSE42, AVX, AVX2, AVX512), default: the highest supported extension\n")
 #endif
@@ -86,16 +88,20 @@ bool DecAppCfg::parseCfg( int argc, char* argv[] )
   ("OutputBitDepth,d",          m_outputBitDepth[CHANNEL_TYPE_LUMA],   0,          "bit depth of YUV output luma component (default: use 0 for native depth)")
   ("OutputBitDepthC,d",         m_outputBitDepth[CHANNEL_TYPE_CHROMA], 0,          "bit depth of YUV output chroma component (default: use luma output bit-depth)")
   ("OutputColourSpaceConvert",  outputColourSpaceConvert,              string(""), "Colour space conversion to apply to input 444 video. Permitted values are (empty string=UNCHANGED) " + getListOfColourSpaceConverts(false))
-  ("MaxTemporalLayer,t",        m_iMaxTemporalLayer,                   -1,         "Maximum Temporal Layer to be decoded. -1 to decode all layers")
-  ("TargetLayer,p",             m_iTargetLayer,                        -1,         "Target bitstream Layer to be decoded.")
+  ("MaxTemporalLayer,t",        m_iMaxTemporalLayer,                   500,    "Maximum Temporal Layer to be decoded. -1 to decode all layers")
+  ("TargetOutputLayerSet,p",    m_targetOlsIdx,                        500,    "Target output layer set index")
   ("SEIDecodedPictureHash,-dph",m_decodedPictureHashSEIEnabled,        1,          "Control handling of decoded picture hash SEI messages\n"
                                                                                    "\t1: check hash in SEI messages if available in the bitstream\n"
                                                                                    "\t0: ignore SEI message")
   ("SEINoDisplay",              m_decodedNoDisplaySEIEnabled,          true,       "Control handling of decoded no display SEI messages")
   ("TarDecLayerIdSetFile,l",    cfg_TargetDecLayerIdSetFile,           string(""), "targetDecLayerIdSet file name. The file should include white space separated LayerId values to be decoded. Omitting the option or a value of -1 in the file decodes all layers.")
-  ("RespectDefDispWindow,w",    m_respectDefDispWindow,                0,          "Only output content inside the default display window\n")
   ("SEIColourRemappingInfoFilename",  m_colourRemapSEIFileName,        string(""), "Colour Remapping YUV output file name. If empty, no remapping is applied (ignore SEI message)\n")
+  ("SEICTIFilename",            m_SEICTIFileName,                      string(""), "CTI YUV output file name. If empty, no Colour Transform is applied (ignore SEI message)\n")
+  ("SEIAnnotatedRegionsInfoFilename",  m_annotatedRegionsSEIFileName,   string(""), "Annotated regions output file name. If empty, no object information will be saved (ignore SEI message)\n")
   ("OutputDecodedSEIMessagesFilename",  m_outputDecodedSEIMessagesFilename,    string(""), "When non empty, output decoded SEI messages to the indicated file. If file is '-', then output to stdout\n")
+#if JVET_S0257_DUMP_360SEI_MESSAGE
+  ("360DumpFile",  m_outputDecoded360SEIMessagesFilename, string(""), "When non empty, output decoded 360 SEI messages to the indicated file.\n")
+#endif
   ("ClipOutputVideoToRec709Range",      m_bClipOutputVideoToRec709Range,  false,   "If true then clip output video to the Rec. 709 Range on saving")
   ("PYUV",                      m_packedYUVMode,                       false,      "If true then output 10-bit and 12-bit YUV data as 5-byte and 3-byte (respectively) packed YUV data. Ignored for interlaced output.")
 #if ENABLE_TRACING
@@ -114,9 +120,11 @@ bool DecAppCfg::parseCfg( int argc, char* argv[] )
                                                                                    "\t3: enable bit and tool statistic\n")
 #endif
   ("MCTSCheck",                m_mctsCheck,                           false,       "If enabled, the decoder checks for violations of mc_exact_sample_value_match_flag in Temporal MCTS ")
-#if JVET_O1164_RPR
+  ("targetSubPicIdx",          m_targetSubPicIdx,                     0,           "Specify which subpicture shall be written to output, using subpic index, 0: disabled, subpicIdx=m_targetSubPicIdx-1 \n" )
   ( "UpscaledOutput",          m_upscaledOutput,                          0,       "Upscaled output for RPR" )
-#endif
+#if GDR_LEAK_TEST
+  ("RandomAccessPos",          m_gdrPocRandomAccess,                    0,         "POC of GDR Random access picture\n" )
+#endif // GDR_LEAK_TEST
   ;
 
   po::setDefaults(opts);
@@ -217,23 +225,47 @@ bool DecAppCfg::parseCfg( int argc, char* argv[] )
       msg( ERROR, "File %s could not be opened. Using all LayerIds as default.\n", cfg_TargetDecLayerIdSetFile.c_str() );
     }
   }
+  if (m_iMaxTemporalLayer != 500)
+  {
+    m_mTidExternalSet = true;
+  }
+  else
+  {
+    m_iMaxTemporalLayer = -1;
+  }
+  if ( m_targetOlsIdx != 500)
+  {
+    m_tOlsIdxTidExternalSet = true;
+  }
+  else
+  {
+    m_targetOlsIdx = -1;
+  }
   return true;
 }
 
 DecAppCfg::DecAppCfg()
 : m_bitstreamFileName()
 , m_reconFileName()
+, m_oplFilename()
+
 , m_iSkipFrame(0)
 // m_outputBitDepth array initialised below
 , m_outputColourSpaceConvert(IPCOLOURSPACE_UNCHANGED)
-, m_iTargetLayer(0)
+, m_targetOlsIdx(0)
 , m_iMaxTemporalLayer(-1)
+, m_mTidExternalSet(false)
+, m_tOlsIdxTidExternalSet(false)
 , m_decodedPictureHashSEIEnabled(0)
 , m_decodedNoDisplaySEIEnabled(false)
 , m_colourRemapSEIFileName()
+, m_SEICTIFileName()
+, m_annotatedRegionsSEIFileName()
 , m_targetDecLayerIdSet()
-, m_respectDefDispWindow(0)
 , m_outputDecodedSEIMessagesFilename()
+#if JVET_S0257_DUMP_360SEI_MESSAGE
+, m_outputDecoded360SEIMessagesFilename()
+#endif
 , m_bClipOutputVideoToRec709Range(false)
 , m_packedYUVMode(false)
 , m_statMode(0)
